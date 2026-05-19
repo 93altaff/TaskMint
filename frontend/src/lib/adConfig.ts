@@ -16,7 +16,7 @@ const STORAGE_KEY = "tm_admob_settings_v1";
 // Sensible defaults — also used as the production fallback if the
 // backend is unreachable on first launch.
 export const DEFAULT_AD_SETTINGS: AdMobSettings = {
-  android_app_id: "ca-app-pub-7744865309171344~0000000000",
+  android_app_id: "ca-app-pub-7744865309171344~1346257321",
   banner_unit_id: "ca-app-pub-7744865309171344/7215240687",
   interstitial_unit_id: "ca-app-pub-7744865309171344/9409414321",
   rewarded_unit_id: "ca-app-pub-7744865309171344/8895153865",

@@ -227,7 +227,7 @@ class AppVersionInfo(BaseModel):
     release_notes: str = ""
 
 class AdMobSettings(BaseModel):
-    android_app_id: str = "ca-app-pub-7744865309171344~0000000000"
+    android_app_id: str = "ca-app-pub-7744865309171344~1346257321"
     banner_unit_id: str = "ca-app-pub-7744865309171344/7215240687"
     interstitial_unit_id: str = "ca-app-pub-7744865309171344/9409414321"
     rewarded_unit_id: str = "ca-app-pub-7744865309171344/8895153865"
