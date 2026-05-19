@@ -89,7 +89,6 @@ export default function Surveys() {
           <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
         ) : left <= 0 ? (
           <>
-            <NativeAd testID="surveys-native-ad-done" />
             <View style={styles.doneCard} testID="surveys-limit-reached">
               <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
               <Text style={styles.doneTitle}>All Done!</Text>

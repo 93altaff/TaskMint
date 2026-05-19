@@ -107,7 +107,6 @@ export default function Quizzes() {
             <Text style={styles.doneTitle}>All Done!</Text>
             <Text style={styles.doneBody}>Daily limit reached. Come back tomorrow.</Text>
           </View>
-          <NativeAd testID="quiz-native-ad-done" />
         </View>
       </SafeAreaView>
     );

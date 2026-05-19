@@ -79,7 +79,6 @@ export default function ScratchScreen() {
           <View style={{ width: 26 }} />
         </View>
         <View style={styles.doneWrap}>
-          <NativeAd testID="scratch-native-ad-done" />
           <View style={styles.doneCard} testID="scratch-limit-reached">
             <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
             <Text style={styles.doneTitle}>All Done!</Text>

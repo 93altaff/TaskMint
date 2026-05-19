@@ -99,7 +99,6 @@ export default function VisitEarn() {
           <Text style={styles.empty}>No sites available right now. Check back soon.</Text>
         ) : allCompleted ? (
           <>
-            <NativeAd testID="visit-native-ad-done" />
             <View style={styles.doneCard} testID="visit-all-done">
               <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
               <Text style={styles.doneTitle}>All Done!</Text>

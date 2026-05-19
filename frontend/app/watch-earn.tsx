@@ -98,7 +98,6 @@ export default function WatchEarn() {
           <View style={{ width: 26 }} />
         </View>
         <ScrollView contentContainerStyle={{ padding: theme.spacing.lg }}>
-          <NativeAd testID="watch-native-ad-done" />
           <View style={styles.doneCard} testID="watch-limit-reached">
             <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
             <Text style={styles.doneTitle}>All Done!</Text>
