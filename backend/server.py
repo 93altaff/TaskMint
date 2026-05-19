@@ -1,0 +1,2458 @@
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Header
+from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+import logging
+from pathlib import Path
+from pydantic import BaseModel, Field
+from typing import List, Optional, Literal
+import uuid
+import random
+import httpx
+from datetime import datetime, timezone, timedelta
+
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / '.env')
+
+# MongoDB
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+# Stable user_id for the canonical admin record. Every successful admin login
+# remaps the current session to point at this single record, so the admin
+# never accidentally creates a new "Altaf (Admin)" row.
+ADMIN_USER_ID = "admin_altaff"
+
+app = FastAPI()
+api_router = APIRouter(prefix="/api")
+
+
+# ---------- Models ----------
+class User(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    points: int = 0
+    total_earned: int = 0
+    total_withdrawn: int = 0
+    total_tasks: int = 0
+    streak: int = 0
+    last_checkin: Optional[str] = None
+    daily_spins_used: int = 0
+    daily_scratches_used: int = 0
+    last_activity_date: Optional[str] = None
+    has_first_withdrawal: bool = False
+    is_admin: bool = False
+    referral_code: Optional[str] = None
+    referred_by: Optional[str] = None
+    referral_rewards_paid: List[int] = []
+    mobile_number: Optional[str] = None
+    admin_session_expires_at: Optional[str] = None
+    watch_cycle_started_at: Optional[str] = None
+    watch_cycle_used: int = 0
+    # Wallet split: per-category balances. Together they should equal `points`.
+    campaign_points: int = 0
+    games_task_points: int = 0
+    # Daily withdraw cap (combined across both wallets).
+    withdrawals_today: int = 0
+    withdrawals_today_date: Optional[str] = None
+    created_at: str
+
+class Banner(BaseModel):
+    id: str = Field(default_factory=lambda: f"bnr_{uuid.uuid4().hex[:10]}")
+    title: str
+    subtitle: Optional[str] = ""
+    image_url: str
+    link_url: Optional[str] = ""
+    active: bool = True
+    hidden: bool = False
+    pinned: bool = False
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class BannerCreate(BaseModel):
+    title: str
+    subtitle: Optional[str] = ""
+    image_url: str
+    link_url: Optional[str] = ""
+    active: bool = True
+    hidden: bool = False
+    pinned: bool = False
+
+class Campaign(BaseModel):
+    id: str = Field(default_factory=lambda: f"cmp_{uuid.uuid4().hex[:10]}")
+    name: str
+    note: str
+    logo_url: str
+    link_url: Optional[str] = ""
+    tutorial_video_url: Optional[str] = ""  # YouTube URL shown as embedded tutorial
+    rules: Optional[str] = ""  # multi-line rules shown on task detail
+    telegram_contact_url: Optional[str] = ""
+    form_field_1_label: Optional[str] = ""  # empty = field hidden
+    form_field_1_placeholder: Optional[str] = ""
+    form_field_2_label: Optional[str] = ""
+    form_field_2_placeholder: Optional[str] = ""
+    category: str = "App Install"
+    difficulty: str = "Easy"
+    reward_points: int
+    reward_inr: float
+    active: bool = True
+    hidden: bool = False
+    pinned: bool = False
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class CampaignCreate(BaseModel):
+    name: str
+    note: str
+    logo_url: str
+    link_url: Optional[str] = ""
+    tutorial_video_url: Optional[str] = ""
+    rules: Optional[str] = ""
+    telegram_contact_url: Optional[str] = ""
+    form_field_1_label: Optional[str] = ""
+    form_field_1_placeholder: Optional[str] = ""
+    form_field_2_label: Optional[str] = ""
+    form_field_2_placeholder: Optional[str] = ""
+    category: str = "App Install"
+    difficulty: str = "Easy"
+    reward_points: int
+    active: bool = True
+    hidden: bool = False
+    pinned: bool = False
+
+class CampaignCompletion(BaseModel):
+    id: str = Field(default_factory=lambda: f"cmc_{uuid.uuid4().hex[:10]}")
+    user_id: str
+    user_name: str
+    user_email: str
+    campaign_id: str
+    campaign_name: str
+    reward_points: int
+    form_field_1_value: Optional[str] = ""
+    form_field_2_value: Optional[str] = ""
+    status: Literal["pending", "approved", "rejected"] = "pending"
+    admin_note: Optional[str] = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class CampaignCompletionUpdate(BaseModel):
+    status: Literal["pending", "approved", "rejected"]
+    admin_note: Optional[str] = ""
+    approved_points: Optional[int] = None  # When approving, override the credited points (0..original).
+                                            # If less than original, a successful withdrawal record is also
+                                            # created for the ORIGINAL points so the user sees a paid-out
+                                            # entry in their withdraw history.
+
+class TaskSubmit(BaseModel):
+    form_field_1_value: Optional[str] = ""
+    form_field_2_value: Optional[str] = ""
+
+class Transaction(BaseModel):
+    id: str = Field(default_factory=lambda: f"txn_{uuid.uuid4().hex[:10]}")
+    user_id: str
+    type: str  # earn / withdraw
+    source: str  # checkin/spin/scratch/campaign/quiz/survey/withdraw
+    category: str = "games_task"  # "campaign" | "games_task"
+    points: int  # positive for earn, negative for withdraw
+    note: str = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class WithdrawRequest(BaseModel):
+    id: str = Field(default_factory=lambda: f"wdr_{uuid.uuid4().hex[:10]}")
+    user_id: str
+    user_name: str
+    user_email: str
+    method: Literal["upi", "bank"]
+    source: Literal["campaign", "games_task"] = "games_task"
+    points: int
+    inr_amount: float
+    upi_id: Optional[str] = None
+    bank_account: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    bank_holder: Optional[str] = None
+    status: Literal["pending", "successful", "rejected"] = "pending"
+    admin_note: Optional[str] = ""
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class WithdrawCreate(BaseModel):
+    method: Literal["upi", "bank"]
+    source: Literal["campaign", "games_task"] = "games_task"
+    points: int
+    upi_id: Optional[str] = None
+    bank_account: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    bank_holder: Optional[str] = None
+
+class WithdrawUpdate(BaseModel):
+    status: Literal["pending", "successful", "rejected"]
+    admin_note: Optional[str] = ""
+
+class AppLinks(BaseModel):
+    telegram: str = ""
+    telegram_contact: str = ""
+    business_contact: str = ""
+    whatsapp: str = ""
+    customer_support: str = ""
+    privacy_policy: str = ""
+    terms: str = ""
+
+class WithdrawSettings(BaseModel):
+    amounts: List[int] = [100, 10000, 30000, 50000]  # in points (₹1, ₹100, ₹300, ₹500)
+
+class ReferralTier(BaseModel):
+    streak_days: int   # at what streak day this bonus pays out
+    points: int        # reward points
+
+class ReferralSettings(BaseModel):
+    streak_7_reward_points: int = 1000   # ₹10 (kept for back-compat)
+    streak_15_reward_points: int = 2000  # ₹20
+    tiers: List[ReferralTier] = []       # multi-tier — overrides streak_7/15 when non-empty
+    hero_title: str = "Earn ₹10 per friend"
+    hero_subtitle: str = "₹10 at 7-day streak • ₹20 at 15-day streak"
+    how_it_works_step3: str = "₹10 when they hit a 7-day streak • ₹20 when they hit a 15-day streak"
+    sharing_text: str = "🎉 Join me on TaskMint and earn real cash! Use my code {code} when signing up."
+
+class AppVersionInfo(BaseModel):
+    latest_version: str = "1.0.0"
+    min_supported_version: str = "1.0.0"
+    play_store_url: str = "https://play.google.com/store/apps/details?id=com.taskmint.app"
+    force_update: bool = False
+    release_notes: str = ""
+
+class AdMobSettings(BaseModel):
+    android_app_id: str = "ca-app-pub-7744865309171344~0000000000"
+    banner_unit_id: str = "ca-app-pub-7744865309171344/7215240687"
+    interstitial_unit_id: str = "ca-app-pub-7744865309171344/9409414321"
+    rewarded_unit_id: str = "ca-app-pub-7744865309171344/8895153865"
+    native_unit_id: str = "ca-app-pub-7744865309171344/5951555040"
+
+class MobileNumberSet(BaseModel):
+    mobile_number: str
+    confirm_mobile_number: str
+
+class ApplyReferralCode(BaseModel):
+    code: str
+
+class AdjustPoints(BaseModel):
+    delta: int  # positive to add, negative to deduct
+    reason: str
+    source: Literal["campaign", "games_task"] = "games_task"
+
+class SessionExchange(BaseModel):
+    session_id: str
+
+class DeviceLogin(BaseModel):
+    device_id: str
+    fingerprint: Optional[str] = None
+    device_meta: Optional[dict] = None
+
+class AdminPasswordLogin(BaseModel):
+    email: str
+    password: str
+
+
+# ---------- Helpers ----------
+def today_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+async def get_current_user(request: Request, authorization: Optional[str] = Header(None)) -> dict:
+    """Validate session_token from cookie OR Authorization header."""
+    token = request.cookies.get("session_token")
+    if not token and authorization:
+        if authorization.startswith("Bearer "):
+            token = authorization[len("Bearer "):]
+        else:
+            token = authorization
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    expires_at = session.get("expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at and expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    # Apply defaults for any field added in later iterations
+    user.setdefault("total_withdrawn", 0)
+    user.setdefault("total_earned", 0)
+    user.setdefault("total_tasks", 0)
+    user.setdefault("streak", 0)
+    user.setdefault("daily_spins_used", 0)
+    user.setdefault("daily_scratches_used", 0)
+    user.setdefault("has_first_withdrawal", False)
+    user.setdefault("is_admin", False)
+    user.setdefault("pending_spin_reward", 0)
+    user.setdefault("pending_scratch_reward", 0)
+    user.setdefault("daily_visits_used", 0)
+    user.setdefault("daily_surveys_used", 0)
+    user.setdefault("daily_quizzes_used", 0)
+    user.setdefault("referral_code", None)
+    user.setdefault("referred_by", None)
+    user.setdefault("referral_rewards_paid", [])
+    user.setdefault("mobile_number", None)
+    # Wallet split defaults (legacy users predating iter-21)
+    user.setdefault("campaign_points", 0)
+    user.setdefault("games_task_points", 0)
+    user.setdefault("withdrawals_today", 0)
+    user.setdefault("withdrawals_today_date", None)
+    # Auto-expire admin privileges after 6 hours
+    if user.get("is_admin") and user.get("admin_session_expires_at"):
+        try:
+            exp = datetime.fromisoformat(user["admin_session_expires_at"])
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if exp < datetime.now(timezone.utc):
+                await db.users.update_one(
+                    {"user_id": user["user_id"]},
+                    {"$set": {"is_admin": False, "admin_session_expires_at": None}},
+                )
+                user["is_admin"] = False
+                user["admin_session_expires_at"] = None
+                # Restore the original device-user for this session, if we have it
+                fallback_id = session.get("device_user_id")
+                if fallback_id and fallback_id != user["user_id"]:
+                    await db.user_sessions.update_one(
+                        {"session_token": token},
+                        {"$set": {"user_id": fallback_id}, "$unset": {"device_user_id": ""}},
+                    )
+                    restored = await db.users.find_one({"user_id": fallback_id}, {"_id": 0})
+                    if restored:
+                        user = restored
+        except Exception:
+            pass
+    return user
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+async def reset_daily_limits_if_needed(user: dict) -> dict:
+    today = today_str()
+    if user.get("last_activity_date") != today:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {
+                "daily_spins_used": 0,
+                "daily_scratches_used": 0,
+                "daily_watches_used": 0,
+                "daily_visits_used": 0,
+                "daily_surveys_used": 0,
+                "daily_quizzes_used": 0,
+                "memory_plays_used": 0,
+                "ttt_plays_used": 0,
+                "math_plays_used": 0,
+                "last_activity_date": today,
+            }},
+        )
+        user["daily_spins_used"] = 0
+        user["daily_scratches_used"] = 0
+        user["daily_watches_used"] = 0
+        user["daily_visits_used"] = 0
+        user["daily_surveys_used"] = 0
+        user["daily_quizzes_used"] = 0
+        user["memory_plays_used"] = 0
+        user["ttt_plays_used"] = 0
+        user["math_plays_used"] = 0
+        user["last_activity_date"] = today
+    return user
+
+async def add_points_and_log(user_id: str, points: int, source: str, note: str = "", category: str = "games_task"):
+    """Atomically add points to the correct wallet bucket and create a transaction.
+
+    `category` is "campaign" or "games_task". The legacy `points` field stays in
+    sync (sum of both buckets) for backward compatibility with the rest of the
+    code that still reads `user.points`.
+    """
+    if category not in ("campaign", "games_task"):
+        category = "games_task"
+    bucket_field = "campaign_points" if category == "campaign" else "games_task_points"
+    update = {"$inc": {"points": points, bucket_field: points, "total_tasks": 1 if points > 0 else 0}}
+    if points > 0:
+        update["$inc"]["total_earned"] = points
+    await db.users.update_one({"user_id": user_id}, update)
+    txn = Transaction(
+        user_id=user_id, type="earn" if points > 0 else "withdraw",
+        source=source, category=category, points=points, note=note,
+    )
+    await db.transactions.insert_one(txn.dict())
+
+
+async def make_referral_code(name: str) -> str:
+    """Generate a uppercase alphanumeric referral code derived from the user's name.
+    Keeps only [A-Z0-9], min length 4. On collision append a 3-hex suffix."""
+    base = "".join(ch for ch in (name or "").upper() if ch.isalnum())
+    if len(base) < 4:
+        base = (base + "USER")[:4]
+    base = base[:16]
+    code = base
+    # Ensure uniqueness
+    for _ in range(10):
+        if not await db.users.find_one({"referral_code": code}, {"_id": 0, "user_id": 1}):
+            return code
+        code = f"{base}{uuid.uuid4().hex[:3].upper()}"
+    # extremely unlikely fallback
+    return f"{base}{uuid.uuid4().hex[:6].upper()}"
+
+
+async def get_referral_settings() -> dict:
+    doc = await db.referral_settings.find_one({"_id": "singleton"}, {"_id": 0})
+    return doc or ReferralSettings().dict()
+
+
+# ---------- Auth ----------
+@api_router.post("/auth/session")
+async def auth_session(payload: SessionExchange, response: Response):
+    """Exchange session_id (from Emergent OAuth) for our session_token."""
+    async with httpx.AsyncClient(timeout=15) as http:
+        r = await http.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": payload.session_id},
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid session_id")
+    data = r.json()
+    email = data["email"]
+    name = data.get("name") or email.split("@")[0]
+    picture = data.get("picture")
+    session_token = data["session_token"]
+
+    # Find or create user
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        user = existing
+        # ensure picture/name updates
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"name": name, "picture": picture, "is_admin": email == ADMIN_EMAIL}},
+        )
+        user["name"] = name
+        user["picture"] = picture
+        user["is_admin"] = email == ADMIN_EMAIL
+    else:
+        new_user_id = f"user_{uuid.uuid4().hex[:12]}"
+        ref_code = await make_referral_code(name)
+        new_user = User(
+            user_id=new_user_id,
+            email=email, name=name, picture=picture,
+            is_admin=(email == ADMIN_EMAIL),
+            referral_code=ref_code,
+            created_at=now_iso(),
+        )
+        await db.users.insert_one(new_user.dict())
+        user = new_user.dict()
+
+    # Save session
+    expires = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.update_one(
+        {"session_token": session_token},
+        {"$set": {
+            "user_id": user["user_id"],
+            "session_token": session_token,
+            "expires_at": expires,
+            "created_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+
+    response.set_cookie(
+        key="session_token", value=session_token,
+        httponly=True, secure=True, samesite="none",
+        path="/", max_age=7 * 24 * 3600,
+    )
+
+    user_clean = {k: v for k, v in user.items() if k != "_id"}
+    return {"user": user_clean, "session_token": session_token}
+
+@api_router.get("/auth/me")
+async def auth_me(user: dict = Depends(get_current_user)):
+    # Track activity for DAU stat
+    today = today_str()
+    if user.get("last_activity_date") != today:
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {"last_activity_date": today, "daily_spins_used": 0, "daily_scratches_used": 0}},
+        )
+        user["last_activity_date"] = today
+        user["daily_spins_used"] = 0
+        user["daily_scratches_used"] = 0
+    return user
+
+
+@api_router.post("/auth/device")
+async def auth_device(payload: DeviceLogin, response: Response):
+    """One-tap login using the device ID. Creates an anonymous user if new.
+
+    Anti-clone defence: cloning apps (Parallel Space, Dual Apps, work-profile,
+    etc.) give the app a fresh ANDROID_ID (it is scoped per Android user-id
+    + signing key). They cannot, however, lie about the underlying hardware
+    fingerprint (brand + manufacturer + modelName + designName + osBuildId).
+    We therefore:
+      1. Try exact device_id match → return that account.
+      2. Try fingerprint match → quietly attach the new device_id to the
+         existing account and return it (one-device-one-account guarantee).
+      3. Otherwise create a brand-new account and store its fingerprint.
+    """
+    device_id = payload.device_id.strip()
+    if not device_id or len(device_id) < 6:
+        raise HTTPException(status_code=400, detail="Invalid device ID")
+
+    fingerprint = (payload.fingerprint or "").strip() or None
+
+    # 1. Exact device_id match (returning user / re-install on same ROM).
+    existing = await db.users.find_one(
+        {"$or": [{"device_id": device_id}, {"device_ids": device_id}]},
+        {"_id": 0},
+    )
+
+    # 2. Fingerprint match → same physical device, just cloned/parallel-spaced.
+    if not existing and fingerprint:
+        existing = await db.users.find_one({"device_fingerprint": fingerprint}, {"_id": 0})
+        if existing:
+            await db.users.update_one(
+                {"user_id": existing["user_id"]},
+                {"$addToSet": {"device_ids": device_id}},
+            )
+
+    if existing:
+        user = existing
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        name = f"User{device_id[-4:].upper()}"
+        ref_code = await make_referral_code(name)
+        new_user = User(
+            user_id=user_id,
+            email=f"{device_id[:10]}@device.local",
+            name=name,
+            picture=None,
+            is_admin=False,
+            referral_code=ref_code,
+            created_at=now_iso(),
+        ).dict()
+        new_user["device_id"] = device_id
+        new_user["device_ids"] = [device_id]
+        if fingerprint:
+            new_user["device_fingerprint"] = fingerprint
+        if payload.device_meta:
+            new_user["device_meta"] = payload.device_meta
+        await db.users.insert_one(new_user)
+        user = new_user
+
+    session_token = f"dev_{uuid.uuid4().hex}"
+    expires = datetime.now(timezone.utc) + timedelta(days=365 * 5)
+    await db.user_sessions.insert_one({
+        "user_id": user["user_id"],
+        "session_token": session_token,
+        "expires_at": expires,
+        "created_at": datetime.now(timezone.utc),
+    })
+    response.set_cookie(
+        key="session_token", value=session_token,
+        httponly=True, secure=True, samesite="none",
+        path="/", max_age=365 * 5 * 24 * 3600,
+    )
+    user_clean = {k: v for k, v in user.items() if k != "_id"}
+    return {"user": user_clean, "session_token": session_token}
+
+
+@api_router.post("/auth/admin-login")
+async def auth_admin_login(payload: AdminPasswordLogin, request: Request, response: Response):
+    """Promote the current device session to the admin role.
+
+    We never mutate the calling device-user row. Instead we keep a single
+    canonical admin record (`user_id == ADMIN_USER_ID`) and remap the current
+    session to point at it. The original device user_id is remembered in the
+    session as `device_user_id` so admin-logout (or 6-hour expiry) can
+    seamlessly restore the original user with their points/streak intact.
+    """
+    if payload.email.strip().lower() != ADMIN_EMAIL or payload.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+
+    token = request.cookies.get("session_token")
+    auth_header = request.headers.get("authorization", "")
+    if not token and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated. Login first.")
+
+    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    # Ensure the canonical admin record exists exactly once.
+    admin_user = await db.users.find_one({"user_id": ADMIN_USER_ID}, {"_id": 0})
+    if not admin_user:
+        admin_user = User(
+            user_id=ADMIN_USER_ID,
+            email=ADMIN_EMAIL,
+            name="Altaf (Admin)",
+            picture=None,
+            is_admin=True,
+            referral_code="ALTAF",
+            created_at=now_iso(),
+        ).dict()
+        await db.users.insert_one(admin_user)
+
+    # Promote + extend admin window on the canonical admin record.
+    await db.users.update_one(
+        {"user_id": ADMIN_USER_ID},
+        {"$set": {
+            "is_admin": True,
+            "email": ADMIN_EMAIL,
+            "name": "Altaf (Admin)",
+            "referral_code": "ALTAF",
+            "admin_session_expires_at": (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat(),
+        }},
+    )
+    # Free up ALTAF code if any other user holds it (legacy data).
+    await db.users.update_many(
+        {"referral_code": "ALTAF", "user_id": {"$ne": ADMIN_USER_ID}},
+        {"$set": {"referral_code": None}},
+    )
+
+    # Remap the current session to the canonical admin (only set
+    # device_user_id once, so repeat logins don't overwrite it with the admin id).
+    device_uid = session.get("device_user_id") or session["user_id"]
+    if device_uid == ADMIN_USER_ID:
+        # Calling session is already the admin record (someone logged in twice
+        # without an intermediate device session) — leave device_user_id unset.
+        await db.user_sessions.update_one(
+            {"session_token": token},
+            {"$set": {"user_id": ADMIN_USER_ID}},
+        )
+    else:
+        await db.user_sessions.update_one(
+            {"session_token": token},
+            {"$set": {"user_id": ADMIN_USER_ID, "device_user_id": device_uid}},
+        )
+
+    user = await db.users.find_one({"user_id": ADMIN_USER_ID}, {"_id": 0})
+    user.setdefault("total_withdrawn", 0)
+    user.setdefault("total_earned", 0)
+    user.setdefault("total_tasks", 0)
+    user.setdefault("streak", 0)
+    return {"ok": True, "user": user}
+
+
+@api_router.post("/auth/admin-logout")
+async def auth_admin_logout(request: Request, user: dict = Depends(get_current_user)):
+    """Demote admin and restore the original device user on this session."""
+    token = request.cookies.get("session_token")
+    auth_header = request.headers.get("authorization", "")
+    if not token and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    session = await db.user_sessions.find_one({"session_token": token}, {"_id": 0}) if token else None
+
+    # Demote the admin record (keep all its data — points, streak, refs).
+    await db.users.update_one(
+        {"user_id": ADMIN_USER_ID},
+        {"$set": {"is_admin": False, "admin_session_expires_at": None}},
+    )
+
+    # Restore the session to the original device user, if we have one stored.
+    fallback_id = (session or {}).get("device_user_id")
+    if token and fallback_id and fallback_id != ADMIN_USER_ID:
+        await db.user_sessions.update_one(
+            {"session_token": token},
+            {"$set": {"user_id": fallback_id}, "$unset": {"device_user_id": ""}},
+        )
+        fresh = await db.users.find_one({"user_id": fallback_id}, {"_id": 0})
+    else:
+        fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return {"ok": True, "user": fresh}
+
+@api_router.post("/auth/logout")
+async def auth_logout(request: Request, response: Response):
+    token = request.cookies.get("session_token")
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if token:
+        await db.user_sessions.delete_one({"session_token": token})
+    response.delete_cookie("session_token", path="/")
+    return {"ok": True}
+
+
+# ---------- Public content ----------
+@api_router.get("/banners")
+async def get_banners():
+    items = await db.banners.find(
+        {"active": True, "$or": [{"hidden": {"$ne": True}}, {"hidden": {"$exists": False}}]},
+        {"_id": 0},
+    ).sort([("pinned", -1), ("created_at", -1)]).to_list(100)
+    return items
+
+@api_router.get("/campaigns")
+async def get_campaigns():
+    items = await db.campaigns.find(
+        {"active": True, "$or": [{"hidden": {"$ne": True}}, {"hidden": {"$exists": False}}]},
+        {"_id": 0},
+    ).sort([("pinned", -1), ("created_at", -1)]).to_list(100)
+    return items
+
+@api_router.get("/links")
+async def get_links():
+    doc = await db.app_links.find_one({"_id": "singleton"}, {"_id": 0})
+    return doc or AppLinks().dict()
+
+@api_router.get("/withdraw-settings")
+async def get_withdraw_settings():
+    doc = await db.withdraw_settings.find_one({"_id": "singleton"}, {"_id": 0})
+    return doc or WithdrawSettings().dict()
+
+@api_router.get("/campaign-completions")
+async def my_campaign_completions(user: dict = Depends(get_current_user)):
+    items = await db.campaign_completions.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(500)
+    return items
+
+
+# ---------- Referrals ----------
+@api_router.get("/referrals/me")
+async def my_referrals(user: dict = Depends(get_current_user)):
+    """Return this user's referral code, referrer, and tracked stats."""
+    # Make sure user has a code (backfill for legacy accounts)
+    code = user.get("referral_code")
+    if not code:
+        code = await make_referral_code(user.get("name") or "USER")
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"referral_code": code}})
+    referred_by = user.get("referred_by")
+    referrer_name = None
+    referrer_code = None
+    if referred_by:
+        ref_user = await db.users.find_one({"user_id": referred_by}, {"_id": 0, "name": 1, "referral_code": 1})
+        if ref_user:
+            referrer_name = ref_user.get("name")
+            referrer_code = ref_user.get("referral_code")
+
+    count = await db.users.count_documents({"referred_by": user["user_id"]})
+    earn_cursor = db.transactions.aggregate([
+        {"$match": {"user_id": user["user_id"], "source": "referral", "points": {"$gt": 0}}},
+        {"$group": {"_id": None, "total": {"$sum": "$points"}}},
+    ])
+    total_earned = 0
+    async for row in earn_cursor:
+        total_earned = int(row.get("total", 0))
+
+    can_apply = (referred_by is None) and (user.get("last_checkin") in (None, ""))
+    settings = await get_referral_settings()
+    return {
+        "referral_code": code,
+        "referred_by": referred_by,
+        "referrer_name": referrer_name,
+        "referrer_code": referrer_code,
+        "count": count,
+        "total_earned_points": total_earned,
+        "total_earned_inr": round(total_earned / 100, 2),
+        "can_apply": can_apply,
+        "hero_title": settings.get("hero_title", "Earn ₹10 per friend"),
+        "hero_subtitle": settings.get("hero_subtitle", "₹10 at 7-day streak • ₹20 at 15-day streak"),
+        "how_it_works_step3": settings.get(
+            "how_it_works_step3",
+            "₹10 when they hit a 7-day streak • ₹20 when they hit a 15-day streak",
+        ),
+        "sharing_text": settings.get(
+            "sharing_text",
+            "🎉 Join me on TaskMint and earn real cash! Use my code {code} when signing up.",
+        ),
+        "tiers": settings.get("tiers") or [],
+    }
+
+
+@api_router.post("/referrals/apply")
+async def apply_referral_code(payload: ApplyReferralCode, user: dict = Depends(get_current_user)):
+    """Attach a referrer to the current user — only before the first check-in."""
+    code = (payload.code or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="Enter a referral code")
+    if user.get("referred_by"):
+        raise HTTPException(status_code=400, detail="You've already applied a referral code")
+    if user.get("last_checkin"):
+        raise HTTPException(
+            status_code=400,
+            detail="You can no longer apply a code — you've already completed a daily check-in",
+        )
+    # Cannot use your own code
+    if code == (user.get("referral_code") or "").upper():
+        raise HTTPException(status_code=400, detail="You can't use your own code")
+
+    referrer = await db.users.find_one({"referral_code": code}, {"_id": 0})
+    if not referrer:
+        raise HTTPException(status_code=404, detail="Invalid referral code")
+
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"referred_by": referrer["user_id"]}},
+    )
+    return {
+        "ok": True,
+        "referrer_name": referrer.get("name"),
+        "referrer_code": referrer.get("referral_code"),
+    }
+
+
+# ---------- Tasks ----------
+@api_router.post("/tasks/checkin")
+async def daily_checkin(user: dict = Depends(get_current_user)):
+    user = await reset_daily_limits_if_needed(user)
+    today = today_str()
+    if user.get("last_checkin") == today:
+        raise HTTPException(status_code=400, detail="Already checked in today")
+    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    new_streak = user.get("streak", 0) + 1 if user.get("last_checkin") == yesterday else 1
+    # Reward grows with streak: 20..100 (+10 per day, capped at 100)
+    reward = min(20 + (new_streak - 1) * 10, 100)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"last_checkin": today, "streak": new_streak}},
+    )
+    await add_points_and_log(user["user_id"], reward, "checkin", f"Day {new_streak} streak")
+
+    # ---------- Referral milestone payout ----------
+    referrer_id = user.get("referred_by")
+    paid = user.get("referral_rewards_paid", []) or []
+    if referrer_id:
+        settings = await get_referral_settings()
+        # Multi-tier: if admin configured custom tiers, use them.
+        tiers = settings.get("tiers") or []
+        if tiers:
+            for tier in tiers:
+                streak_days = int(tier.get("streak_days", 0) or 0)
+                pts = int(tier.get("points", 0) or 0)
+                if streak_days > 0 and new_streak == streak_days and streak_days not in paid and pts > 0:
+                    await add_points_and_log(
+                        referrer_id, pts, "referral",
+                        f"Referral bonus — {user.get('name', 'friend')} hit {streak_days}-day streak",
+                    )
+                    await db.users.update_one(
+                        {"user_id": user["user_id"]},
+                        {"$push": {"referral_rewards_paid": streak_days}},
+                    )
+        else:
+            # Legacy 7/15-day rewards
+            if new_streak in (7, 15) and new_streak not in paid:
+                reward_amt = (
+                    settings.get("streak_7_reward_points", 1000) if new_streak == 7
+                    else settings.get("streak_15_reward_points", 2000)
+                )
+                if reward_amt > 0:
+                    await add_points_and_log(
+                        referrer_id, reward_amt, "referral",
+                        f"Referral bonus — {user.get('name', 'friend')} hit {new_streak}-day streak",
+                    )
+                await db.users.update_one(
+                    {"user_id": user["user_id"]},
+                    {"$push": {"referral_rewards_paid": new_streak}},
+                )
+    return {"reward": reward, "streak": new_streak}
+
+@api_router.post("/tasks/spin")
+async def spin_wheel(user: dict = Depends(get_current_user)):
+    user = await reset_daily_limits_if_needed(user)
+    if user.get("daily_spins_used", 0) >= 5:
+        raise HTTPException(status_code=400, detail="Daily spin limit reached")
+    if user.get("pending_spin_reward", 0) > 0:
+        raise HTTPException(status_code=400, detail="Claim previous spin first")
+    reward = random.randint(30, 100)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$inc": {"daily_spins_used": 1}, "$set": {"pending_spin_reward": reward}},
+    )
+    return {"reward": reward, "remaining": 4 - user.get("daily_spins_used", 0)}
+
+@api_router.post("/tasks/spin/claim")
+async def spin_claim(user: dict = Depends(get_current_user)):
+    pending = user.get("pending_spin_reward", 0)
+    if pending <= 0:
+        raise HTTPException(status_code=400, detail="No pending spin reward to claim")
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"pending_spin_reward": 0}}
+    )
+    await add_points_and_log(user["user_id"], pending, "spin", "Spin reward claimed")
+    return {"reward": pending}
+
+@api_router.post("/tasks/scratch")
+async def scratch_card(user: dict = Depends(get_current_user)):
+    user = await reset_daily_limits_if_needed(user)
+    if user.get("daily_scratches_used", 0) >= 5:
+        raise HTTPException(status_code=400, detail="Daily scratch limit reached")
+    if user.get("pending_scratch_reward", 0) > 0:
+        raise HTTPException(status_code=400, detail="Claim previous scratch first")
+    reward = random.randint(30, 100)
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$inc": {"daily_scratches_used": 1}, "$set": {"pending_scratch_reward": reward}},
+    )
+    return {"reward": reward, "remaining": 4 - user.get("daily_scratches_used", 0)}
+
+@api_router.post("/tasks/scratch/claim")
+async def scratch_claim(user: dict = Depends(get_current_user)):
+    pending = user.get("pending_scratch_reward", 0)
+    if pending <= 0:
+        raise HTTPException(status_code=400, detail="No pending scratch reward to claim")
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"pending_scratch_reward": 0}}
+    )
+    await add_points_and_log(user["user_id"], pending, "scratch", "Scratch reward claimed")
+    return {"reward": pending}
+
+@api_router.post("/tasks/watch")
+async def watch_video(user: dict = Depends(get_current_user)):
+    """Watch & Earn — 5 watches per 6-hour cycle. Reward 50-100.
+
+    Each user has a sliding 6-hour `watch_cycle_started_at`. When the user
+    burns through 5 watches, they must wait the rest of the 6 hours before
+    a new cycle starts. The frontend uses `watch_cycle_started_at` to show
+    a countdown timer (cycle resets at `started_at + 6h`).
+    """
+    now = datetime.now(timezone.utc)
+    started_iso = user.get("watch_cycle_started_at")
+    started_at = None
+    if started_iso:
+        try:
+            started_at = datetime.fromisoformat(started_iso)
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+        except Exception:
+            started_at = None
+
+    cycle_used = int(user.get("watch_cycle_used", 0) or 0)
+
+    # If no cycle yet, or last cycle older than 6 hours → start a fresh cycle.
+    if not started_at or (now - started_at) >= timedelta(hours=6):
+        started_at = now
+        cycle_used = 0
+
+    settings = await get_game_settings()
+    cycle_limit = int(settings["watch_cycle_limit"])
+    cycle_hours = int(settings["watch_cycle_hours"])
+    r_min = int(settings["watch_reward_min"])
+    r_max = int(settings["watch_reward_max"])
+
+    if cycle_used >= cycle_limit:
+        resets_at = (started_at + timedelta(hours=cycle_hours)).isoformat()
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "watch_cooldown", "resets_at": resets_at},
+        )
+
+    reward = random.randint(r_min, r_max)
+    new_used = cycle_used + 1
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "watch_cycle_started_at": started_at.isoformat(),
+            "watch_cycle_used": new_used,
+        }},
+    )
+    await add_points_and_log(user["user_id"], reward, "watch", "Watch & Earn")
+    resets_at = (started_at + timedelta(hours=cycle_hours)).isoformat()
+    return {
+        "reward": reward,
+        "remaining": cycle_limit - new_used,
+        "cycle_resets_at": resets_at,
+        "cycle_used": new_used,
+    }
+
+
+class VisitCompleteBody(BaseModel):
+    site_id: str
+
+
+@api_router.post("/tasks/visit")
+async def visit_site(payload: VisitCompleteBody, user: dict = Depends(get_current_user)):
+    """Visit & Earn — credits 50-100 points. Each site can be completed only once per day,
+    but there's no global daily limit — user can complete every active site."""
+    # Confirm the site exists & is active
+    site = await db.visit_sites.find_one({"id": payload.site_id, "active": True}, {"_id": 0})
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found or inactive")
+
+    today = today_str()
+    # Prevent duplicate claim for the same site today
+    existing = await db.visit_completions.find_one(
+        {"user_id": user["user_id"], "site_id": payload.site_id, "date": today}
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="This site is already completed today")
+
+    reward = random.randint(30, 100)
+    await db.visit_completions.insert_one({
+        "user_id": user["user_id"],
+        "site_id": payload.site_id,
+        "date": today,
+        "reward": reward,
+        "created_at": datetime.now(timezone.utc),
+    })
+    await add_points_and_log(user["user_id"], reward, "visit", f"Visit: {site['title']}")
+    return {"reward": reward}
+
+
+@api_router.get("/tasks/visit/completed-today")
+async def visit_completed_today(user: dict = Depends(get_current_user)):
+    """Return site IDs the current user has already claimed today."""
+    today = today_str()
+    rows = await db.visit_completions.find(
+        {"user_id": user["user_id"], "date": today}, {"_id": 0, "site_id": 1}
+    ).to_list(500)
+    return {"site_ids": [r["site_id"] for r in rows]}
+
+
+# ---------- Surveys & Quizzes pools ----------
+SURVEY_POOL = [
+    {"title": "Shopping habits", "time": "2 min"},
+    {"title": "Travel preferences", "time": "3 min"},
+    {"title": "Mobile apps usage", "time": "1 min"},
+    {"title": "Food delivery survey", "time": "2 min"},
+    {"title": "Streaming services", "time": "2 min"},
+    {"title": "Online learning", "time": "3 min"},
+    {"title": "Fitness & health", "time": "2 min"},
+    {"title": "Banking & UPI usage", "time": "2 min"},
+    {"title": "Social media habits", "time": "1 min"},
+    {"title": "EV & transport", "time": "3 min"},
+    {"title": "Gaming preferences", "time": "2 min"},
+    {"title": "Reading & books", "time": "2 min"},
+    {"title": "Music platforms", "time": "1 min"},
+    {"title": "Smart home gadgets", "time": "2 min"},
+    {"title": "Workplace habits", "time": "3 min"},
+    {"title": "Fashion & shopping", "time": "2 min"},
+    {"title": "Insurance awareness", "time": "3 min"},
+    {"title": "Investment trends", "time": "3 min"},
+    {"title": "OTT subscriptions", "time": "2 min"},
+    {"title": "Mobile network usage", "time": "1 min"},
+]
+
+QUIZ_POOL = [
+    {"q": "Which is India's official currency?", "a": ["Rupee", "Dollar", "Euro", "Yen"], "c": 0},
+    {"q": "Capital of Maharashtra?", "a": ["Pune", "Mumbai", "Nagpur", "Nashik"], "c": 1},
+    {"q": "1 INR = how many points in TaskMint?", "a": ["10", "50", "100", "1000"], "c": 2},
+    {"q": "Which app pays via UPI instantly?", "a": ["TaskMint", "—", "—", "—"], "c": 0},
+    {"q": "Daily check-in reward grows with…", "a": ["Random", "Streak", "Mood", "Hour"], "c": 1},
+    {"q": "Capital of India?", "a": ["Mumbai", "Kolkata", "New Delhi", "Chennai"], "c": 2},
+    {"q": "Largest planet in solar system?", "a": ["Earth", "Jupiter", "Saturn", "Mars"], "c": 1},
+    {"q": "Who wrote 'Wings of Fire'?", "a": ["Tagore", "Kalam", "Nehru", "Gandhi"], "c": 1},
+    {"q": "National animal of India?", "a": ["Lion", "Elephant", "Tiger", "Peacock"], "c": 2},
+    {"q": "Currency of Japan?", "a": ["Won", "Yuan", "Yen", "Ringgit"], "c": 2},
+    {"q": "Highest mountain in the world?", "a": ["K2", "Everest", "Kanchenjunga", "Annapurna"], "c": 1},
+    {"q": "Speed of light (approx)?", "a": ["3,00,000 km/s", "1,50,000 km/s", "5,00,000 km/s", "1,000 km/s"], "c": 0},
+    {"q": "Which is a programming language?", "a": ["HTML", "Python", "CSS", "JSON"], "c": 1},
+    {"q": "Which country is famous for sushi?", "a": ["China", "Korea", "Japan", "Thailand"], "c": 2},
+    {"q": "Number of players in cricket team?", "a": ["9", "10", "11", "12"], "c": 2},
+    {"q": "Which is the smallest prime number?", "a": ["0", "1", "2", "3"], "c": 2},
+    {"q": "Which gas do plants absorb?", "a": ["Oxygen", "Nitrogen", "CO₂", "Hydrogen"], "c": 2},
+    {"q": "PIN code 'Pin' stands for?", "a": ["Postal Index Number", "Public Index No.", "Postal Identification", "Pin Identification"], "c": 0},
+    {"q": "Father of the Nation (India)?", "a": ["Nehru", "Gandhi", "Patel", "Bose"], "c": 1},
+    {"q": "Which app is for video calling?", "a": ["WhatsApp", "Notepad", "Calculator", "Camera"], "c": 0},
+    {"q": "Who invented the bulb?", "a": ["Tesla", "Edison", "Newton", "Einstein"], "c": 1},
+    {"q": "Which is a search engine?", "a": ["Chrome", "Google", "Bing", "Both Google & Bing"], "c": 3},
+    {"q": "₹1 = how many paise?", "a": ["10", "100", "1000", "50"], "c": 1},
+    {"q": "Which is India's largest river?", "a": ["Yamuna", "Ganga", "Krishna", "Godavari"], "c": 1},
+    {"q": "Number of states in India (2024)?", "a": ["27", "28", "29", "30"], "c": 1},
+]
+
+
+@api_router.get("/tasks/surveys/random")
+async def random_surveys(limit: int = 5, _: dict = Depends(get_current_user)):
+    """Return a fresh, randomly-shuffled subset of surveys for this open."""
+    n = max(1, min(limit, len(SURVEY_POOL)))
+    sample = random.sample(SURVEY_POOL, n)
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "title": s["title"],
+            "time": s["time"],
+            "reward": random.randint(30, 100),
+        }
+        for s in sample
+    ]
+
+
+@api_router.get("/tasks/quizzes/random")
+async def random_quizzes(limit: int = 5, _: dict = Depends(get_current_user)):
+    """Return a fresh, randomly-shuffled subset of quiz questions."""
+    n = max(1, min(limit, len(QUIZ_POOL)))
+    return random.sample(QUIZ_POOL, n)
+
+
+class SimpleTaskComplete(BaseModel):
+    correct: int
+    total: int
+
+@api_router.post("/tasks/quiz")
+async def complete_quiz(payload: SimpleTaskComplete, user: dict = Depends(get_current_user)):
+    user = await reset_daily_limits_if_needed(user)
+    if user.get("daily_quizzes_used", 0) >= 5:
+        raise HTTPException(status_code=400, detail="Daily quiz limit reached")
+    reward = random.randint(30, 100)
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$inc": {"daily_quizzes_used": 1}}
+    )
+    await add_points_and_log(user["user_id"], reward, "quiz", f"{payload.correct}/{payload.total}")
+    return {"reward": reward, "remaining": 4 - user.get("daily_quizzes_used", 0)}
+
+@api_router.post("/tasks/survey")
+async def complete_survey(user: dict = Depends(get_current_user)):
+    user = await reset_daily_limits_if_needed(user)
+    if user.get("daily_surveys_used", 0) >= 5:
+        raise HTTPException(status_code=400, detail="Daily survey limit reached")
+    reward = random.randint(30, 100)
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$inc": {"daily_surveys_used": 1}}
+    )
+    await add_points_and_log(user["user_id"], reward, "survey", "Survey completed")
+    return {"reward": reward, "remaining": 4 - user.get("daily_surveys_used", 0)}
+
+
+# ---------- Visit Sites (admin-managed) ----------
+class VisitSite(BaseModel):
+    id: str = Field(default_factory=lambda: f"vs_{uuid.uuid4().hex[:10]}")
+    title: str
+    url: str
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VisitSiteCreate(BaseModel):
+    title: str
+    url: str
+    active: bool = True
+
+
+class VisitSiteUpdate(BaseModel):
+    title: Optional[str] = None
+    url: Optional[str] = None
+    active: Optional[bool] = None
+
+
+@api_router.get("/visit-sites")
+async def list_visit_sites_public(_: dict = Depends(get_current_user)):
+    """Public list of active visit sites for the Visit & Earn screen."""
+    items = await db.visit_sites.find({"active": True}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return items
+
+
+@api_router.get("/admin/visit-sites")
+async def list_visit_sites_admin(_: dict = Depends(require_admin)):
+    items = await db.visit_sites.find({}, {"_id": 0}).sort("created_at", 1).to_list(200)
+    return items
+
+
+@api_router.post("/admin/visit-sites", response_model=VisitSite)
+async def create_visit_site(payload: VisitSiteCreate, _: dict = Depends(require_admin)):
+    site = VisitSite(**payload.dict())
+    await db.visit_sites.insert_one(site.dict())
+    return site
+
+
+@api_router.put("/admin/visit-sites/{site_id}", response_model=VisitSite)
+async def update_visit_site(site_id: str, payload: VisitSiteUpdate, _: dict = Depends(require_admin)):
+    update = {k: v for k, v in payload.dict().items() if v is not None}
+    if update:
+        await db.visit_sites.update_one({"id": site_id}, {"$set": update})
+    site = await db.visit_sites.find_one({"id": site_id}, {"_id": 0})
+    if not site:
+        raise HTTPException(status_code=404, detail="Site not found")
+    return VisitSite(**site)
+
+
+@api_router.delete("/admin/visit-sites/{site_id}")
+async def delete_visit_site(site_id: str, _: dict = Depends(require_admin)):
+    res = await db.visit_sites.delete_one({"id": site_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Site not found")
+    return {"deleted": True}
+
+@api_router.get("/campaign/{campaign_id}")
+async def get_campaign_detail(campaign_id: str, user: dict = Depends(get_current_user)):
+    cmp = await db.campaigns.find_one({"id": campaign_id, "active": True}, {"_id": 0})
+    if not cmp:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    completion = await db.campaign_completions.find_one(
+        {"user_id": user["user_id"], "campaign_id": campaign_id}, {"_id": 0}
+    )
+    cmp["completion"] = completion
+    return cmp
+
+@api_router.post("/tasks/campaign/{campaign_id}")
+async def start_campaign(campaign_id: str, user: dict = Depends(get_current_user)):
+    """Open link only — does NOT create completion. Frontend should submit later."""
+    cmp = await db.campaigns.find_one({"id": campaign_id, "active": True}, {"_id": 0})
+    if not cmp:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return {"link_url": cmp.get("link_url", "")}
+
+@api_router.post("/tasks/campaign/{campaign_id}/submit")
+async def submit_campaign(
+    campaign_id: str, payload: TaskSubmit, user: dict = Depends(get_current_user)
+):
+    cmp = await db.campaigns.find_one({"id": campaign_id, "active": True}, {"_id": 0})
+    if not cmp:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    existing = await db.campaign_completions.find_one(
+        {"user_id": user["user_id"], "campaign_id": campaign_id}, {"_id": 0}
+    )
+    if existing and existing["status"] in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail=f"Task already {existing['status']}")
+
+    # If previously rejected and admin reset -> remove old completion to allow retry
+    if existing:
+        await db.campaign_completions.delete_one({"id": existing["id"]})
+
+    completion = CampaignCompletion(
+        user_id=user["user_id"],
+        user_name=user["name"],
+        user_email=user["email"],
+        campaign_id=campaign_id,
+        campaign_name=cmp["name"],
+        reward_points=cmp["reward_points"],
+        form_field_1_value=payload.form_field_1_value or "",
+        form_field_2_value=payload.form_field_2_value or "",
+    )
+    await db.campaign_completions.insert_one(completion.dict())
+    return {"ok": True, "completion_id": completion.id, "status": "pending"}
+
+
+# ---------- Wallet ----------
+@api_router.get("/wallet/transactions")
+async def transactions(category: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Optionally filter by `?category=campaign|games_task`.
+
+    Legacy rows without an explicit `category` are treated as `games_task`
+    (since campaigns are the only category we tag separately).
+    """
+    q: dict = {"user_id": user["user_id"]}
+    if category in ("campaign", "games_task"):
+        if category == "games_task":
+            q["$or"] = [
+                {"category": "games_task"},
+                {"category": {"$exists": False}},
+                {"category": None},
+            ]
+        else:
+            q["category"] = "campaign"
+    items = await db.transactions.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Normalise: legacy rows without explicit category default to games_task.
+    for t in items:
+        if not t.get("category"):
+            t["category"] = "games_task"
+    return items
+
+
+# ---------- Withdraw ----------
+@api_router.post("/withdraw")
+async def submit_withdraw(payload: WithdrawCreate, user: dict = Depends(get_current_user)):
+    if payload.points <= 0:
+        raise HTTPException(status_code=400, detail="Points must be positive")
+    if not user.get("mobile_number"):
+        raise HTTPException(status_code=400, detail="Please add your mobile number before withdrawing")
+    if payload.method == "upi" and not payload.upi_id:
+        raise HTTPException(status_code=400, detail="UPI ID required")
+    if payload.method == "bank" and not (payload.bank_account and payload.bank_ifsc and payload.bank_holder):
+        raise HTTPException(status_code=400, detail="Bank details required")
+
+    # --- Per-wallet balance check ---
+    source = payload.source if payload.source in ("campaign", "games_task") else "games_task"
+    bucket_field = "campaign_points" if source == "campaign" else "games_task_points"
+    bucket_balance = int(user.get(bucket_field, 0) or 0)
+    if payload.points > bucket_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient {source.replace('_', ' & ')} balance ({bucket_balance} pts available)",
+        )
+
+    # --- Combined 2/day cap ---
+    today = today_str()
+    wd_today_date = user.get("withdrawals_today_date")
+    wd_today = int(user.get("withdrawals_today", 0) or 0) if wd_today_date == today else 0
+    if wd_today >= 2:
+        raise HTTPException(status_code=400, detail="Daily withdrawal limit reached (2 per day). Come back tomorrow.")
+
+    inr = payload.points / 100.0
+    wd = WithdrawRequest(
+        user_id=user["user_id"], user_name=user["name"], user_email=user["email"],
+        method=payload.method, source=source, points=payload.points, inr_amount=inr,
+        upi_id=payload.upi_id, bank_account=payload.bank_account,
+        bank_ifsc=payload.bank_ifsc, bank_holder=payload.bank_holder,
+    )
+    await db.withdrawals.insert_one(wd.dict())
+    # deduct points from the correct bucket and the legacy total; bump per-day counter.
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {
+            "$inc": {
+                "points": -payload.points,
+                bucket_field: -payload.points,
+                "total_withdrawn": payload.points,
+            },
+            "$set": {
+                "has_first_withdrawal": True,
+                "withdrawals_today_date": today,
+                "withdrawals_today": wd_today + 1,
+            },
+        },
+    )
+    txn = Transaction(
+        user_id=user["user_id"], type="withdraw", source="withdraw",
+        category=source, points=-payload.points,
+        note=f"Withdraw {inr} INR via {payload.method} ({source.replace('_', ' & ')})",
+    )
+    await db.transactions.insert_one(txn.dict())
+    return wd.dict()
+
+@api_router.get("/withdraw/history")
+async def withdraw_history(user: dict = Depends(get_current_user)):
+    items = await db.withdrawals.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+
+# ---------- Admin ----------
+@api_router.get("/admin/banners")
+async def admin_list_banners(_: dict = Depends(require_admin)):
+    items = await db.banners.find({}, {"_id": 0}).sort([("pinned", -1), ("created_at", -1)]).to_list(500)
+    return items
+
+@api_router.post("/admin/banners")
+async def admin_create_banner(payload: BannerCreate, _: dict = Depends(require_admin)):
+    b = Banner(**payload.dict())
+    await db.banners.insert_one(b.dict())
+    return b.dict()
+
+@api_router.put("/admin/banners/{banner_id}")
+async def admin_update_banner(banner_id: str, payload: BannerCreate, _: dict = Depends(require_admin)):
+    await db.banners.update_one({"id": banner_id}, {"$set": payload.dict()})
+    return {"ok": True}
+
+@api_router.delete("/admin/banners/{banner_id}")
+async def admin_delete_banner(banner_id: str, _: dict = Depends(require_admin)):
+    await db.banners.delete_one({"id": banner_id})
+    return {"ok": True}
+
+@api_router.get("/admin/campaigns")
+async def admin_list_campaigns(_: dict = Depends(require_admin)):
+    items = await db.campaigns.find({}, {"_id": 0}).sort([("pinned", -1), ("created_at", -1)]).to_list(500)
+    return items
+
+@api_router.post("/admin/campaigns")
+async def admin_create_campaign(payload: CampaignCreate, _: dict = Depends(require_admin)):
+    c = Campaign(**payload.dict(), reward_inr=payload.reward_points / 100.0)
+    await db.campaigns.insert_one(c.dict())
+    return c.dict()
+
+@api_router.put("/admin/campaigns/{campaign_id}")
+async def admin_update_campaign(campaign_id: str, payload: CampaignCreate, _: dict = Depends(require_admin)):
+    data = payload.dict()
+    data["reward_inr"] = payload.reward_points / 100.0
+    await db.campaigns.update_one({"id": campaign_id}, {"$set": data})
+    return {"ok": True}
+
+@api_router.delete("/admin/campaigns/{campaign_id}")
+async def admin_delete_campaign(campaign_id: str, _: dict = Depends(require_admin)):
+    await db.campaigns.delete_one({"id": campaign_id})
+    return {"ok": True}
+
+@api_router.get("/admin/withdrawals")
+async def admin_list_withdrawals(_: dict = Depends(require_admin)):
+    items = await db.withdrawals.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Enrich each item with the user's mobile number (only one lookup per
+    # unique user_id, not per row).
+    ids = {w["user_id"] for w in items}
+    mobiles: dict = {}
+    async for u in db.users.find(
+        {"user_id": {"$in": list(ids)}},
+        {"_id": 0, "user_id": 1, "mobile_number": 1},
+    ):
+        mobiles[u["user_id"]] = u.get("mobile_number")
+    for w in items:
+        w["user_mobile"] = mobiles.get(w["user_id"])
+    return items
+
+@api_router.put("/admin/withdrawals/{withdraw_id}")
+async def admin_update_withdraw(withdraw_id: str, payload: WithdrawUpdate, _: dict = Depends(require_admin)):
+    wd = await db.withdrawals.find_one({"id": withdraw_id}, {"_id": 0})
+    if not wd:
+        raise HTTPException(status_code=404, detail="Not found")
+    update = {"status": payload.status, "admin_note": payload.admin_note or "", "updated_at": now_iso()}
+    await db.withdrawals.update_one({"id": withdraw_id}, {"$set": update})
+    if payload.status == "rejected" and wd["status"] != "rejected":
+        # refund points to the SAME bucket they were drawn from (legacy
+        # rows without `source` default to games_task).
+        src = (wd.get("source") or "games_task").lower()
+        bucket_field = "campaign_points" if src == "campaign" else "games_task_points"
+        await db.users.update_one(
+            {"user_id": wd["user_id"]},
+            {"$inc": {"points": wd["points"], bucket_field: wd["points"]}},
+        )
+        txn = Transaction(
+            user_id=wd["user_id"], type="earn", source="withdraw",
+            category=src, points=wd["points"],
+            note=f"Withdrawal {withdraw_id} refunded",
+        )
+        await db.transactions.insert_one(txn.dict())
+    return {"ok": True}
+
+@api_router.get("/admin/links")
+async def admin_get_links(_: dict = Depends(require_admin)):
+    doc = await db.app_links.find_one({"_id": "singleton"}, {"_id": 0})
+    return doc or AppLinks().dict()
+
+@api_router.put("/admin/links")
+async def admin_update_links(payload: AppLinks, _: dict = Depends(require_admin)):
+    await db.app_links.update_one({"_id": "singleton"}, {"$set": payload.dict()}, upsert=True)
+    return payload.dict()
+
+@api_router.get("/admin/stats")
+async def admin_stats(_: dict = Depends(require_admin)):
+    users_count = await db.users.count_documents({})
+    pending = await db.withdrawals.count_documents({"status": "pending"})
+    successful = await db.withdrawals.count_documents({"status": "successful"})
+    today = today_str()
+    active_today = await db.users.count_documents({"last_activity_date": today})
+    pending_campaigns = await db.campaign_completions.count_documents({"status": "pending"})
+    return {
+        "users": users_count,
+        "pending_withdrawals": pending,
+        "successful_withdrawals": successful,
+        "active_today": active_today,
+        "pending_campaigns": pending_campaigns,
+    }
+
+
+# ---------- Admin: Users ----------
+@api_router.get("/admin/users")
+async def admin_list_users(q: str = "", active: str = "", admin: dict = Depends(require_admin)):
+    flt: dict = {}
+    if q:
+        # Search by name (primary) or mobile_number only.
+        flt = {"$or": [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"mobile_number": {"$regex": q, "$options": "i"}},
+        ]}
+    if active in ("1", "true", "yes"):
+        flt["last_activity_date"] = today_str()
+    items = await db.users.find(flt, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Attach referrals_count for each user so the admin can see how many people they referred.
+    user_ids = [u.get("user_id") for u in items if u.get("user_id")]
+    counts: dict = {}
+    if user_ids:
+        pipeline = [
+            {"$match": {"referred_by": {"$in": user_ids}}},
+            {"$group": {"_id": "$referred_by", "n": {"$sum": 1}}},
+        ]
+        async for row in db.users.aggregate(pipeline):
+            counts[row["_id"]] = row["n"]
+    for u in items:
+        u["referrals_count"] = counts.get(u.get("user_id"), 0)
+    return items
+
+@api_router.get("/admin/users/{user_id}")
+async def admin_get_user(user_id: str, _: dict = Depends(require_admin)):
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    u.setdefault("total_withdrawn", 0)
+    u.setdefault("total_earned", 0)
+    u.setdefault("total_tasks", 0)
+    u.setdefault("streak", 0)
+    u["referrals_count"] = await db.users.count_documents({"referred_by": user_id})
+    return u
+
+@api_router.post("/admin/users/{user_id}/adjust-points")
+async def admin_adjust_points(user_id: str, payload: AdjustPoints, _: dict = Depends(require_admin)):
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="User not found")
+    source = payload.source if payload.source in ("campaign", "games_task") else "games_task"
+    bucket_field = "campaign_points" if source == "campaign" else "games_task_points"
+    bucket_balance = int(u.get(bucket_field, 0) or 0)
+    # Block under-zero on EITHER the bucket or the legacy total.
+    if payload.delta < 0 and (bucket_balance + payload.delta < 0 or u.get("points", 0) + payload.delta < 0):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot reduce {source.replace('_', ' & ')} below 0 ({bucket_balance} pts available)",
+        )
+    update = {"$inc": {"points": payload.delta, bucket_field: payload.delta}}
+    if payload.delta > 0:
+        update["$inc"]["total_earned"] = payload.delta
+    await db.users.update_one({"user_id": user_id}, update)
+    txn = Transaction(
+        user_id=user_id,
+        type="earn" if payload.delta > 0 else "withdraw",
+        source="admin",
+        category=source,
+        points=payload.delta,
+        note=payload.reason,
+    )
+    await db.transactions.insert_one(txn.dict())
+    return {"ok": True, "new_points": (u.get("points", 0) + payload.delta)}
+
+
+# ---------- Admin: Campaign Completions ----------
+@api_router.get("/admin/campaign-completions")
+async def admin_list_completions(_: dict = Depends(require_admin)):
+    items = await db.campaign_completions.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    ids = {c["user_id"] for c in items}
+    mobiles: dict = {}
+    async for u in db.users.find(
+        {"user_id": {"$in": list(ids)}},
+        {"_id": 0, "user_id": 1, "mobile_number": 1},
+    ):
+        mobiles[u["user_id"]] = u.get("mobile_number")
+    for c in items:
+        c["user_mobile"] = mobiles.get(c["user_id"])
+    return items
+
+@api_router.put("/admin/campaign-completions/{completion_id}")
+async def admin_update_completion(
+    completion_id: str, payload: CampaignCompletionUpdate, _: dict = Depends(require_admin)
+):
+    c = await db.campaign_completions.find_one({"id": completion_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Not found")
+    if c["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Already {c['status']}")
+    await db.campaign_completions.update_one(
+        {"id": completion_id},
+        {"$set": {"status": payload.status, "admin_note": payload.admin_note or "", "updated_at": now_iso()}},
+    )
+    if payload.status == "approved":
+        original_points = int(c.get("reward_points", 0) or 0)
+        approved_points = payload.approved_points
+        if approved_points is None:
+            approved_points = original_points
+        approved_points = max(0, min(int(approved_points), original_points))
+
+        # 1) Credit the user's wallet with whatever the admin approved (could be 0).
+        if approved_points > 0:
+            await add_points_and_log(
+                c["user_id"], approved_points, "campaign",
+                f"{c['campaign_name']} approved",
+                category="campaign",
+            )
+
+        # 2) If admin reduced the payout (or paid 0), record a successful
+        # withdrawal entry for the ORIGINAL reward so the user sees a paid-out
+        # row in their withdraw history (matches manual payout outside the
+        # in-app wallet). Use the campaign name as the destination descriptor
+        # rather than the user-submitted UPI / holder fields.
+        if approved_points < original_points and original_points > 0:
+            wd = WithdrawRequest(
+                user_id=c["user_id"],
+                user_name=c.get("user_name", ""),
+                user_email=c.get("user_email", ""),
+                method="upi",
+                source="campaign",
+                points=original_points,
+                inr_amount=round(original_points / 100.0, 2),
+                upi_id=c.get("campaign_name", ""),
+                status="successful",
+                admin_note=f"Auto-recorded for {c['campaign_name']} approval (paid externally)",
+            )
+            wd_doc = wd.dict()
+            wd_doc["updated_at"] = now_iso()
+            await db.withdrawals.insert_one(wd_doc)
+            # Also keep total_withdrawn in sync for the user.
+            await db.users.update_one(
+                {"user_id": c["user_id"]},
+                {"$inc": {"total_withdrawn": original_points},
+                 "$set": {"has_first_withdrawal": True}},
+            )
+    return {"ok": True}
+
+@api_router.delete("/admin/campaign-completions/{completion_id}")
+async def admin_reset_completion(
+    completion_id: str, reason: str = "", _: dict = Depends(require_admin)
+):
+    """Reset a completion so the user can retry. Keeps the record with
+    status='rejected' and admin_note=reason so the user sees why it was reset."""
+    c = await db.campaign_completions.find_one({"id": completion_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Not found")
+    note = reason or "Task reset by admin — please re-submit"
+    await db.campaign_completions.update_one(
+        {"id": completion_id},
+        {"$set": {"status": "rejected", "admin_note": note, "updated_at": now_iso()}},
+    )
+    return {"ok": True, "reason": reason}
+
+
+# ---------- Image upload (base64) ----------
+class ImageUpload(BaseModel):
+    data_url: str  # data:image/jpeg;base64,...
+
+@api_router.post("/admin/upload-image")
+async def admin_upload_image(payload: ImageUpload, _: dict = Depends(require_admin)):
+    """Accept a base64 data URL and store as-is. Returns the same URL for use in image_url/logo_url fields."""
+    s = payload.data_url.strip()
+    if not s.startswith("data:image/"):
+        raise HTTPException(status_code=400, detail="Must be a data:image/* URL")
+    # 1.4 MB cap (base64 expands ~33%)
+    if len(s) > 1_400_000:
+        raise HTTPException(status_code=400, detail="Image too large (max ~1MB original)")
+    return {"url": s}
+
+
+# ---------- Admin: User transactions ----------
+@api_router.get("/admin/users/{user_id}/transactions")
+async def admin_user_transactions(user_id: str, category: Optional[str] = None, _: dict = Depends(require_admin)):
+    q: dict = {"user_id": user_id}
+    if category in ("campaign", "games_task"):
+        if category == "games_task":
+            q["$or"] = [
+                {"category": "games_task"},
+                {"category": {"$exists": False}},
+                {"category": None},
+            ]
+        else:
+            q["category"] = "campaign"
+    items = await db.transactions.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Normalise legacy rows so the FE can rely on `category`.
+    for t in items:
+        if not t.get("category"):
+            t["category"] = "games_task"
+    return items
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, admin: dict = Depends(require_admin)):
+    """Permanently delete a user, their sessions, transactions, completions and withdrawals."""
+    if user_id == admin.get("user_id"):
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.delete_one({"user_id": user_id})
+    await db.user_sessions.delete_many({"user_id": user_id})
+    await db.transactions.delete_many({"user_id": user_id})
+    await db.campaign_completions.delete_many({"user_id": user_id})
+    await db.withdrawals.delete_many({"user_id": user_id})
+    return {"ok": True, "deleted_user_id": user_id}
+
+
+# ---------- Admin: Withdraw Settings ----------
+@api_router.get("/admin/withdraw-settings")
+async def admin_get_withdraw_settings(_: dict = Depends(require_admin)):
+    doc = await db.withdraw_settings.find_one({"_id": "singleton"}, {"_id": 0})
+    return doc or WithdrawSettings().dict()
+
+@api_router.put("/admin/withdraw-settings")
+async def admin_update_withdraw_settings(payload: WithdrawSettings, _: dict = Depends(require_admin)):
+    await db.withdraw_settings.update_one(
+        {"_id": "singleton"}, {"$set": payload.dict()}, upsert=True
+    )
+    return payload.dict()
+
+
+# ---------- Admin: Referral Settings ----------
+@api_router.get("/admin/referral-settings")
+async def admin_get_referral_settings(_: dict = Depends(require_admin)):
+    return await get_referral_settings()
+
+@api_router.put("/admin/referral-settings")
+async def admin_update_referral_settings(payload: ReferralSettings, _: dict = Depends(require_admin)):
+    data = payload.dict()
+    if data["streak_7_reward_points"] < 0 or data["streak_15_reward_points"] < 0:
+        raise HTTPException(status_code=400, detail="Amounts must be ≥ 0")
+    for t in data.get("tiers") or []:
+        if t.get("streak_days", 0) <= 0 or t.get("points", 0) < 0:
+            raise HTTPException(status_code=400, detail="Tier streak_days must be > 0 and points >= 0")
+    await db.referral_settings.update_one(
+        {"_id": "singleton"}, {"$set": data}, upsert=True
+    )
+    return data
+
+
+# ---------- AdMob Settings ----------
+@api_router.get("/admob-settings")
+async def get_admob_settings():
+    """Public read of the current AdMob unit IDs so the app can refresh them remotely."""
+    doc = await db.app_settings.find_one({"_id": "admob"}, {"_id": 0})
+    return doc or AdMobSettings().dict()
+
+@api_router.get("/admin/admob-settings")
+async def admin_get_admob_settings(_: dict = Depends(require_admin)):
+    doc = await db.app_settings.find_one({"_id": "admob"}, {"_id": 0})
+    return doc or AdMobSettings().dict()
+
+@api_router.put("/admin/admob-settings")
+async def admin_update_admob_settings(payload: AdMobSettings, _: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"_id": "admob"}, {"$set": payload.dict()}, upsert=True
+    )
+    return payload.dict()
+
+
+# ---------- App Version ----------
+@api_router.get("/version")
+async def get_app_version():
+    doc = await db.app_settings.find_one({"_id": "version"}, {"_id": 0})
+    return doc or AppVersionInfo().dict()
+
+@api_router.get("/admin/version")
+async def admin_get_app_version(_: dict = Depends(require_admin)):
+    doc = await db.app_settings.find_one({"_id": "version"}, {"_id": 0})
+    return doc or AppVersionInfo().dict()
+
+@api_router.put("/admin/version")
+async def admin_update_app_version(payload: AppVersionInfo, _: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"_id": "version"}, {"$set": payload.dict()}, upsert=True
+    )
+    return payload.dict()
+
+
+# ---------- Mobile number ----------
+@api_router.post("/profile/mobile")
+async def set_profile_mobile(payload: MobileNumberSet, user: dict = Depends(get_current_user)):
+    """Set the user's mobile number — only allowed once (used for first withdrawal)."""
+    if user.get("mobile_number"):
+        raise HTTPException(status_code=400, detail="Mobile number already set")
+    n1 = (payload.mobile_number or "").strip()
+    n2 = (payload.confirm_mobile_number or "").strip()
+    if not n1 or len(n1) < 10:
+        raise HTTPException(status_code=400, detail="Enter a valid mobile number")
+    if n1 != n2:
+        raise HTTPException(status_code=400, detail="Mobile numbers do not match")
+    await db.users.update_one(
+        {"user_id": user["user_id"]}, {"$set": {"mobile_number": n1}}
+    )
+    return {"ok": True, "mobile_number": n1}
+
+
+# ---------- Referral History ----------
+@api_router.get("/referrals/history")
+async def referrals_history(user: dict = Depends(get_current_user)):
+    """Return the list of users that signed up using my code, with their streak + check-in info."""
+    rows = await db.users.find(
+        {"referred_by": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    out = []
+    for r in rows:
+        out.append({
+            "user_id": r.get("user_id"),
+            "name": r.get("name"),
+            "streak": r.get("streak", 0),
+            "last_checkin": r.get("last_checkin"),
+            "joined_at": r.get("created_at"),
+            "rewards_paid": r.get("referral_rewards_paid", []) or [],
+        })
+    return out
+
+
+# ---------- Admin: Referral stats per user ----------
+@api_router.get("/admin/users/{user_id}/referrals")
+async def admin_user_referrals(user_id: str, _: dict = Depends(require_admin)):
+    rows = await db.users.find(
+        {"referred_by": user_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return [{
+        "user_id": r.get("user_id"),
+        "name": r.get("name"),
+        "mobile_number": r.get("mobile_number"),
+        "streak": r.get("streak", 0),
+        "last_checkin": r.get("last_checkin"),
+        "joined_at": r.get("created_at"),
+    } for r in rows]
+
+
+# ---------- Admin: Per-user drill-downs ----------
+@api_router.get("/admin/users/{user_id}/withdrawals")
+async def admin_user_withdrawals(user_id: str, _: dict = Depends(require_admin)):
+    """Withdraw history for a user — newest first."""
+    items = await db.withdrawals.find(
+        {"user_id": user_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return items
+
+@api_router.get("/admin/users/{user_id}/completions")
+async def admin_user_completions(user_id: str, _: dict = Depends(require_admin)):
+    """High-paying task (campaign) history for a user — newest first."""
+    items = await db.campaign_completions.find(
+        {"user_id": user_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return items
+
+@api_router.get("/admin/users/{user_id}/checkins")
+async def admin_user_checkins(user_id: str, _: dict = Depends(require_admin)):
+    """Daily check-in history — derived from the user's transactions."""
+    items = await db.transactions.find(
+        {"user_id": user_id, "source": "checkin"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return items
+
+@api_router.get("/admin/users/{user_id}/earn-history")
+async def admin_user_earn_history(user_id: str, _: dict = Depends(require_admin)):
+    """Earn-tab task history: spin, scratch, watch, visit, quiz, survey rewards only."""
+    items = await db.transactions.find(
+        {"user_id": user_id, "source": {"$in": ["spin", "scratch", "watch", "visit", "quiz", "survey"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api_router.get("/admin/users/{user_id}/stats")
+async def admin_user_stats(user_id: str, _: dict = Depends(require_admin)):
+    """Comprehensive per-user metrics shown in the admin user-detail Stats tile.
+
+    All point→INR conversions use the platform rule of 100 pts = ₹1.
+    """
+    user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    def to_inr(p: int) -> float:
+        return round((p or 0) / 100.0, 2)
+
+    # 1. Days since signup
+    created_at = user.get("created_at")
+    days_since_signup = 0
+    if created_at:
+        try:
+            dt = datetime.fromisoformat(created_at)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            days_since_signup = max(0, (datetime.now(timezone.utc) - dt).days)
+        except Exception:
+            pass
+
+    # 2. Active days — distinct YYYY-MM-DD across all transactions
+    active_days_set = set()
+    longest_streak = 0
+    cur_streak = 0
+    prev_date: Optional[datetime] = None
+    checkin_dates: list = []
+    async for t in db.transactions.find(
+        {"user_id": user_id}, {"_id": 0, "created_at": 1, "source": 1}
+    ).sort("created_at", 1):
+        try:
+            d = datetime.fromisoformat(t["created_at"]).date()
+        except Exception:
+            continue
+        active_days_set.add(d.isoformat())
+        if t.get("source") == "checkin":
+            checkin_dates.append(d)
+    # Longest consecutive check-in streak
+    checkin_dates = sorted(set(checkin_dates))
+    for d in checkin_dates:
+        if prev_date is not None and (d - prev_date).days == 1:
+            cur_streak += 1
+        else:
+            cur_streak = 1
+        longest_streak = max(longest_streak, cur_streak)
+        prev_date = d
+
+    # 3. Earnings grouped by category
+    earn_by_cat = {"campaign": 0, "games_task": 0}
+    async for row in db.transactions.aggregate([
+        {"$match": {"user_id": user_id, "points": {"$gt": 0}}},
+        {"$group": {
+            "_id": {"$ifNull": ["$category", "games_task"]},
+            "total": {"$sum": "$points"},
+        }},
+    ]):
+        cat = row["_id"] if row["_id"] in ("campaign", "games_task") else "games_task"
+        earn_by_cat[cat] = earn_by_cat.get(cat, 0) + int(row.get("total", 0))
+
+    # 4. Campaign completions counts
+    campaigns_approved = await db.campaign_completions.count_documents(
+        {"user_id": user_id, "status": "approved"}
+    )
+    campaigns_rejected = await db.campaign_completions.count_documents(
+        {"user_id": user_id, "status": "rejected"}
+    )
+    campaigns_pending = await db.campaign_completions.count_documents(
+        {"user_id": user_id, "status": "pending"}
+    )
+
+    # 5. Referrals
+    total_referrals = await db.users.count_documents({"referred_by": user_id})
+    referral_pts = 0
+    async for row in db.transactions.aggregate([
+        {"$match": {"user_id": user_id, "source": "referral", "points": {"$gt": 0}}},
+        {"$group": {"_id": None, "total": {"$sum": "$points"}}},
+    ]):
+        referral_pts = int(row.get("total", 0))
+
+    # 6. Withdrawals
+    success_pts = 0
+    rejected_pts = 0
+    pending_pts = 0
+    async for row in db.withdrawals.aggregate([
+        {"$match": {"user_id": user_id}},
+        {"$group": {"_id": "$status", "total": {"$sum": "$points"}}},
+    ]):
+        s = row["_id"]
+        v = int(row.get("total", 0))
+        if s == "successful":
+            success_pts = v
+        elif s == "rejected":
+            rejected_pts = v
+        elif s == "pending":
+            pending_pts = v
+
+    available_pts = int(user.get("points", 0) or 0)
+    total_earned_pts = int(user.get("total_earned", 0) or 0)
+    current_streak = int(user.get("streak", 0) or 0)
+
+    return {
+        "days_since_signup": days_since_signup,
+        "active_days": len(active_days_set),
+        "current_streak": current_streak,
+        "longest_streak": longest_streak,
+        "available_points": available_pts,
+        "available_inr": to_inr(available_pts),
+        "total_earned_points": total_earned_pts,
+        "total_earned_inr": to_inr(total_earned_pts),
+        "campaigns_approved": campaigns_approved,
+        "campaigns_rejected": campaigns_rejected,
+        "campaigns_pending": campaigns_pending,
+        "campaign_earned_points": earn_by_cat.get("campaign", 0),
+        "campaign_earned_inr": to_inr(earn_by_cat.get("campaign", 0)),
+        "games_task_earned_points": earn_by_cat.get("games_task", 0),
+        "games_task_earned_inr": to_inr(earn_by_cat.get("games_task", 0)),
+        "total_referrals": total_referrals,
+        "referral_earned_points": referral_pts,
+        "referral_earned_inr": to_inr(referral_pts),
+        "withdrawal_successful_points": success_pts,
+        "withdrawal_successful_inr": to_inr(success_pts),
+        "withdrawal_rejected_points": rejected_pts,
+        "withdrawal_rejected_inr": to_inr(rejected_pts),
+        "withdrawal_pending_points": pending_pts,
+        "withdrawal_pending_inr": to_inr(pending_pts),
+    }
+
+
+# ---------- Seed ----------
+async def migrate_duplicate_admins():
+    """One-time migration: collapse all legacy "Altaf (Admin)" device-user rows
+    into a single canonical admin record (`user_id == ADMIN_USER_ID`).
+
+    Each legacy row is restored to a normal device user (name = "User<XXXX>",
+    placeholder email, fresh referral code) so the original device owner gets
+    their account back the next time they open the app.
+    """
+    # 1. Ensure exactly one canonical admin record exists.
+    canonical = await db.users.find_one({"user_id": ADMIN_USER_ID}, {"_id": 0})
+    if not canonical:
+        canonical = User(
+            user_id=ADMIN_USER_ID,
+            email=ADMIN_EMAIL,
+            name="Altaf (Admin)",
+            picture=None,
+            is_admin=False,  # not yet logged in
+            referral_code="ALTAF",
+            created_at=now_iso(),
+        ).dict()
+        await db.users.insert_one(canonical)
+
+    # 2. Find every "legacy admin" row apart from the canonical one and rehab it.
+    cursor = db.users.find({
+        "user_id": {"$ne": ADMIN_USER_ID},
+        "$or": [
+            {"email": ADMIN_EMAIL},
+            {"name": "Altaf (Admin)"},
+            {"referral_code": "ALTAF"},
+        ],
+    }, {"_id": 0})
+    async for legacy in cursor:
+        device_id = (legacy.get("device_id") or "")[:10]
+        suffix = (device_id or legacy["user_id"])[-4:].upper()
+        new_name = f"User{suffix}"
+        new_email = f"{(device_id or legacy['user_id'])[:10]}@device.local"
+        # Fresh referral code so two users don't keep "ALTAF"
+        new_code = await make_referral_code(new_name)
+        await db.users.update_one(
+            {"user_id": legacy["user_id"]},
+            {"$set": {
+                "name": new_name,
+                "email": new_email,
+                "referral_code": new_code,
+                "is_admin": False,
+                "admin_session_expires_at": None,
+            }},
+        )
+
+    # 3. Re-point any sessions that were stuck pointing at a legacy admin row
+    #    so that next request maps them back to their real device user.
+    #    Sessions with `device_user_id` already remember the original; just
+    #    swap user_id back. Sessions without device_user_id stay on whatever
+    #    row they pointed at (now demoted to a normal user) — also fine.
+    sessions = db.user_sessions.find(
+        {"device_user_id": {"$exists": True, "$ne": None}}, {"_id": 0}
+    )
+    async for s in sessions:
+        if s.get("device_user_id") and s.get("user_id") != s["device_user_id"]:
+            await db.user_sessions.update_one(
+                {"session_token": s["session_token"]},
+                {"$set": {"user_id": s["device_user_id"]}, "$unset": {"device_user_id": ""}},
+            )
+
+
+async def migrate_wallet_split():
+    """Split each existing user's single `points` balance into the new
+    `campaign_points` and `games_task_points` buckets based on their
+    transaction history. Idempotent — runs only on users that haven't
+    been split yet (`campaign_points` AND `games_task_points` both 0
+    while `points > 0`).
+    """
+    cursor = db.users.find({}, {"_id": 0})
+    async for u in cursor:
+        cp = int(u.get("campaign_points") or 0)
+        gp = int(u.get("games_task_points") or 0)
+        pts = int(u.get("points") or 0)
+        if cp + gp == pts:
+            continue  # already migrated / consistent
+        # Compute lifetime campaign earnings from transaction log.
+        camp_earned = 0
+        gen_earned = 0
+        withdrawn = 0
+        async for t in db.transactions.find({"user_id": u["user_id"]}, {"_id": 0}):
+            p = int(t.get("points") or 0)
+            src = (t.get("source") or "").lower()
+            if p > 0:
+                if src == "campaign":
+                    camp_earned += p
+                else:
+                    gen_earned += p
+            else:
+                withdrawn += -p
+        # Allocate past withdrawals to games_task first (legacy withdraws
+        # weren't tagged). Anything beyond that bleeds into campaign.
+        gt_after = max(0, gen_earned - withdrawn)
+        leftover = max(0, withdrawn - gen_earned)
+        camp_after = max(0, camp_earned - leftover)
+        # Clamp to current `points` so the two buckets always sum to it.
+        total_after = gt_after + camp_after
+        if total_after != pts and total_after > 0:
+            # Scale proportionally to current balance.
+            scale = pts / total_after
+            gt_after = int(round(gt_after * scale))
+            camp_after = pts - gt_after
+        elif total_after == 0:
+            gt_after = pts
+            camp_after = 0
+        await db.users.update_one(
+            {"user_id": u["user_id"]},
+            {"$set": {
+                "campaign_points": camp_after,
+                "games_task_points": gt_after,
+            }},
+        )
+
+
+async def seed_initial_data():
+    # Enforce "one device = one account" at the DB level.
+    # partialFilterExpression so existing users without device_id (OAuth users) are unaffected.
+    try:
+        await db.users.create_index(
+            "device_id",
+            unique=True,
+            partialFilterExpression={"device_id": {"$exists": True, "$type": "string"}},
+            name="uniq_device_id",
+        )
+    except Exception as e:
+        logging.warning(f"Could not create unique device_id index: {e}")
+
+    # Anti-clone fingerprint index — speeds up the fallback lookup in
+    # /api/auth/device when a cloning app supplies a fresh device_id.
+    try:
+        await db.users.create_index(
+            "device_fingerprint",
+            partialFilterExpression={"device_fingerprint": {"$exists": True, "$type": "string"}},
+            name="idx_device_fingerprint",
+        )
+        await db.users.create_index("device_ids", name="idx_device_ids")
+    except Exception as e:
+        logging.warning(f"Could not create device_fingerprint/device_ids index: {e}")
+
+    # Backfill new fields on existing docs (idempotent migration)
+    await db.campaigns.update_many({"link_url": {"$exists": False}}, {"$set": {"link_url": ""}})
+    await db.campaigns.update_many({"category": {"$exists": False}}, {"$set": {"category": "App Install"}})
+    await db.campaigns.update_many({"difficulty": {"$exists": False}}, {"$set": {"difficulty": "Easy"}})
+    await db.users.update_many({"total_withdrawn": {"$exists": False}}, {"$set": {"total_withdrawn": 0}})
+    await db.users.update_many({"referred_by": {"$exists": False}}, {"$set": {"referred_by": None}})
+    await db.users.update_many({"referral_rewards_paid": {"$exists": False}}, {"$set": {"referral_rewards_paid": []}})
+
+    # Backfill referral_code for legacy users (one-by-one so we can resolve collisions)
+    legacy_cursor = db.users.find(
+        {"$or": [{"referral_code": {"$exists": False}}, {"referral_code": None}, {"referral_code": ""}]},
+        {"_id": 0, "user_id": 1, "name": 1},
+    )
+    async for u in legacy_cursor:
+        code = await make_referral_code(u.get("name") or "USER")
+        await db.users.update_one({"user_id": u["user_id"]}, {"$set": {"referral_code": code}})
+
+    # Ensure referral_settings singleton exists
+    if not await db.referral_settings.find_one({"_id": "singleton"}):
+        await db.referral_settings.insert_one({"_id": "singleton", **ReferralSettings().dict()})
+
+    await db.app_links.update_one(
+        {"_id": "singleton", "telegram_contact": {"$exists": False}},
+        {"$set": {"telegram_contact": ""}},
+    )
+    await db.app_links.update_one(
+        {"_id": "singleton", "business_contact": {"$exists": False}},
+        {"$set": {"business_contact": ""}},
+    )
+
+    # admin links
+    if not await db.app_links.find_one({"_id": "singleton"}):
+        await db.app_links.insert_one({
+            "_id": "singleton",
+            "telegram": "https://t.me/taskmint",
+            "whatsapp": "https://whatsapp.com/channel/taskmint",
+            "customer_support": "mailto:93altaff@gmail.com",
+            "privacy_policy": "https://taskmint.app/privacy",
+            "terms": "https://taskmint.app/terms",
+            "telegram_contact": "",
+            "business_contact": "",
+        })
+    # banners
+    if await db.banners.count_documents({}) == 0:
+        seed_banners = [
+            Banner(title="Daily Bonus!", subtitle="Check in every day to earn bonus points", image_url="https://images.pexels.com/photos/7135024/pexels-photo-7135024.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940").dict(),
+            Banner(title="Spin & Win", subtitle="10 free spins every day. Win up to 100 points!", image_url="https://images.unsplash.com/photo-1673200644249-bd8f6852a10c?crop=entropy&cs=srgb&fm=jpg&w=940&q=80").dict(),
+            Banner(title="Refer & Earn ₹50", subtitle="Invite friends and earn together", image_url="https://images.unsplash.com/photo-1671749999622-4087a86868cc?crop=entropy&cs=srgb&fm=jpg&w=940&q=80").dict(),
+        ]
+        await db.banners.insert_many(seed_banners)
+    # campaigns
+    if await db.campaigns.count_documents({}) == 0:
+        seed_camps = [
+            Campaign(name="PhonePe", note="Install & open the app", logo_url="https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?w=200&h=200&fit=crop", reward_points=2500, reward_inr=25).dict(),
+            Campaign(name="Groww", note="Sign up and complete KYC", logo_url="https://images.unsplash.com/photo-1559526324-4b87b5e36e44?w=200&h=200&fit=crop", reward_points=8000, reward_inr=80).dict(),
+            Campaign(name="Dream11", note="Install + first deposit", logo_url="https://images.unsplash.com/photo-1551958219-acbc608c6377?w=200&h=200&fit=crop", reward_points=5000, reward_inr=50).dict(),
+            Campaign(name="Cred", note="Complete profile setup", logo_url="https://images.unsplash.com/photo-1556745753-b2904692b3cd?w=200&h=200&fit=crop", reward_points=3000, reward_inr=30).dict(),
+            Campaign(name="MX Player", note="Watch any video for 2 mins", logo_url="https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=200&h=200&fit=crop", reward_points=1500, reward_inr=15).dict(),
+        ]
+        await db.campaigns.insert_many(seed_camps)
+
+
+# ============================================================
+# GAMES — Higher-or-Lower
+# ============================================================
+
+def _today_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _month_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+_GAME_SETTINGS_DEFAULTS = {
+    "hl_daily_rounds": 10,
+    "hl_ad_refills_max": 10,
+    "hl_reward_streak_3": 30,
+    "hl_reward_streak_5": 75,
+    "hl_reward_streak_7": 100,
+    "watch_cycle_limit": 5,
+    "watch_cycle_hours": 6,
+    "watch_reward_min": 50,
+    "watch_reward_max": 100,
+}
+
+
+async def get_game_settings() -> dict:
+    doc = await db.game_settings.find_one({"_id": "settings"}) or {}
+    return {**_GAME_SETTINGS_DEFAULTS, **{k: v for k, v in doc.items() if k != "_id"}}
+
+
+# -------- Higher-or-Lower --------
+HL_DAILY_ROUNDS = 10
+HL_AD_REFILLS_MAX = 10
+
+
+def _hl_today_counts(user: dict) -> tuple[int, int]:
+    today = _today_str()
+    if user.get("hl_date") != today:
+        return 0, 0
+    return int(user.get("hl_rounds_used") or 0), int(user.get("hl_ad_refills_used") or 0)
+
+
+def _hl_streak_reward(streak: int, settings: dict) -> int:
+    if streak >= 7:
+        return int(settings["hl_reward_streak_7"])
+    if streak >= 5:
+        return int(settings["hl_reward_streak_5"])
+    if streak >= 3:
+        return int(settings["hl_reward_streak_3"])
+    return 0
+
+
+@api_router.get("/games/hl/state")
+async def hl_state(user: dict = Depends(get_current_user)):
+    settings = await get_game_settings()
+    used, ad_refills = _hl_today_counts(user)
+    active = user.get("hl_active") or None
+    if active and active.get("date") != _today_str():
+        active = None
+    return {
+        "rounds_used": used,
+        "rounds_total": -1,
+        "ad_refills_used": ad_refills,
+        "ad_refills_max": -1,
+        "active": active,
+    }
+
+
+class HLStartBody(BaseModel):
+    ad_refill: bool = False
+
+
+@api_router.post("/games/hl/start")
+async def hl_start(payload: HLStartBody, user: dict = Depends(get_current_user)):
+    settings = await get_game_settings()
+    today = _today_str()
+    used, ad_refills = _hl_today_counts(user)
+    # Per spec: no daily limit. Frontend handles 10-chances-per-rewarded-ad gating.
+    used += 1
+
+    card = random.randint(1, 13)
+    active = {
+        "date": today,
+        "current_card": card,
+        "streak": 0,
+    }
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "hl_date": today,
+            "hl_rounds_used": used,
+            "hl_ad_refills_used": ad_refills,
+            "hl_active": active,
+        }},
+    )
+    return {
+        "card": card,
+        "streak": 0,
+        "rounds_used": used,
+        "rounds_total": -1,
+        "ad_refills_used": ad_refills,
+        "ad_refills_max": -1,
+    }
+
+
+class HLGuessBody(BaseModel):
+    guess: Literal["higher", "lower"]
+
+
+@api_router.post("/games/hl/guess")
+async def hl_guess(payload: HLGuessBody, user: dict = Depends(get_current_user)):
+    settings = await get_game_settings()
+    active = user.get("hl_active")
+    if not active or active.get("date") != _today_str():
+        raise HTTPException(status_code=400, detail="No active round — start a new one")
+    current = int(active.get("current_card") or 0)
+    streak = int(active.get("streak") or 0)
+
+    # Draw next card different from current to avoid ties (re-roll on tie up to 3 times)
+    nxt = random.randint(1, 13)
+    tries = 0
+    while nxt == current and tries < 3:
+        nxt = random.randint(1, 13)
+        tries += 1
+
+    correct = (
+        (payload.guess == "higher" and nxt > current)
+        or (payload.guess == "lower" and nxt < current)
+        or (nxt == current)  # tie counts as correct (free pass)
+    )
+
+    if correct:
+        streak += 1
+        active = {"date": _today_str(), "current_card": nxt, "streak": streak}
+        await db.users.update_one(
+            {"user_id": user["user_id"]}, {"$set": {"hl_active": active}}
+        )
+        return {
+            "card": nxt,
+            "prev_card": current,
+            "correct": True,
+            "streak": streak,
+            "potential_reward": _hl_streak_reward(streak, settings),
+            "round_over": False,
+        }
+
+    # Wrong — end round, award based on streak achieved
+    reward = _hl_streak_reward(streak, settings)
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"hl_active": None}})
+    if reward > 0:
+        await add_points_and_log(user["user_id"], reward, "higher_lower", f"H/L streak {streak}")
+    return {
+        "card": nxt,
+        "prev_card": current,
+        "correct": False,
+        "streak": streak,
+        "reward": reward,
+        "round_over": True,
+    }
+
+
+@api_router.post("/games/hl/cashout")
+async def hl_cashout(user: dict = Depends(get_current_user)):
+    settings = await get_game_settings()
+    active = user.get("hl_active")
+    if not active or active.get("date") != _today_str():
+        raise HTTPException(status_code=400, detail="No active round")
+    streak = int(active.get("streak") or 0)
+    reward = _hl_streak_reward(streak, settings)
+    if reward <= 0:
+        raise HTTPException(status_code=400, detail="Need at least 3 correct to cash out")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"hl_active": None}})
+    await add_points_and_log(user["user_id"], reward, "higher_lower", f"H/L cashout streak {streak}")
+    return {"reward": reward, "streak": streak}
+
+
+# -------- Memory Match --------
+class MemoryPlayBody(BaseModel):
+    moves: int
+    time_seconds: int
+    completed: bool
+
+@api_router.get("/games/memory/state")
+async def memory_state(user: dict = Depends(get_current_user)):
+    return {"plays_used": 0, "plays_total": -1, "remaining": -1}
+
+@api_router.post("/games/memory/play")
+async def memory_play(payload: MemoryPlayBody, user: dict = Depends(get_current_user)):
+    if not payload.completed:
+        return {"reward": 0, "remaining": -1}
+    # Per spec: 50-100 random points on completion.
+    reward = random.randint(50, 100)
+    await add_points_and_log(user["user_id"], reward, "memory", f"Memory match: {int(payload.moves or 0)} moves, {int(payload.time_seconds or 0)}s")
+    return {"reward": reward, "remaining": -1}
+
+
+# -------- Tic-Tac-Toe --------
+class TicTacToePlayBody(BaseModel):
+    result: Literal["win", "draw", "loss"]
+    difficulty: Literal["easy", "medium", "hard"]
+
+@api_router.get("/games/tictactoe/state")
+async def tictactoe_state(user: dict = Depends(get_current_user)):
+    return {"plays_used": 0, "plays_total": -1, "remaining": -1}
+
+@api_router.post("/games/tictactoe/play")
+async def tictactoe_play(payload: TicTacToePlayBody, user: dict = Depends(get_current_user)):
+    rewards = {
+        "easy":   {"win": 30, "draw": 10, "loss": 0},
+        "medium": {"win": 60, "draw": 20, "loss": 0},
+        "hard":   {"win": 100, "draw": 30, "loss": 0},
+    }
+    reward = rewards[payload.difficulty][payload.result]
+    if reward > 0:
+        await add_points_and_log(
+            user["user_id"], reward, "tictactoe",
+            f"TTT {payload.difficulty} {payload.result}",
+        )
+    return {"reward": reward, "remaining": -1}
+
+
+# -------- Math Sprint --------
+class MathPlayBody(BaseModel):
+    correct: int
+    total: int
+    time_seconds: int
+
+@api_router.get("/games/math/state")
+async def math_state(user: dict = Depends(get_current_user)):
+    return {"plays_used": 0, "plays_total": -1, "remaining": -1}
+
+@api_router.post("/games/math/play")
+async def math_play(payload: MathPlayBody, user: dict = Depends(get_current_user)):
+    correct = max(0, int(payload.correct or 0))
+    # Per spec: threshold-based reward, no per-question scaling.
+    if correct >= 10:
+        reward = 150
+    elif correct >= 8:
+        reward = 100
+    elif correct >= 6:
+        reward = 50
+    elif correct >= 4:
+        reward = 30
+    else:
+        reward = 0
+    if reward > 0:
+        await add_points_and_log(user["user_id"], reward, "math", f"Math Sprint {correct}/{payload.total}")
+    return {"reward": reward, "remaining": -1}
+
+
+# -------- Daily Challenge (mystery box) --------
+@api_router.get("/games/daily-challenge/state")
+async def daily_challenge_state(user: dict = Depends(get_current_user)):
+    today = today_str()
+    claimed = user.get("daily_challenge_date") == today
+    return {"claimed_today": claimed, "available_boxes": 4 if not claimed else 0}
+
+@api_router.post("/games/daily-challenge/open")
+async def daily_challenge_open(user: dict = Depends(get_current_user)):
+    today = today_str()
+    if user.get("daily_challenge_date") == today:
+        raise HTTPException(status_code=400, detail="Already opened today — come back tomorrow")
+    # Weighted reward: most commonly 50-150, occasional 300, rare 1000
+    r = random.random()
+    if r < 0.01:    reward = 1000  # 1% jackpot
+    elif r < 0.10:  reward = 300   # 9%
+    elif r < 0.50:  reward = 150   # 40%
+    else:           reward = 50    # 50%
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"daily_challenge_date": today}},
+    )
+    await add_points_and_log(user["user_id"], reward, "daily_challenge", "Daily mystery box")
+    return {"reward": reward, "jackpot": reward >= 1000}
+
+
+# -------- Admin: Game Settings --------
+
+
+
+
+
+
+
+@app.on_event("startup")
+async def startup_event():
+    await migrate_duplicate_admins()
+    await migrate_wallet_split()
+    await seed_initial_data()
+
+
+# Include the router
+app.include_router(api_router)
+
+_cors_origins_env = os.environ.get("CORS_ORIGINS", "*")
+_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()] or ["*"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    client.close()
