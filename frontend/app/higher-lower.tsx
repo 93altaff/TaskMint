@@ -66,11 +66,7 @@ export default function HigherLower() {
 
   useEffect(() => { fetchState(); }, [fetchState]);
 
-  // First-mount ad gate.
-  useEffect(() => {
-    if (!session.hydrated) return;
-    if (state && !session.hasUnlocked) setShowRewardedAd(true);
-  }, [state, session.hydrated, session.hasUnlocked]);
+  // First-mount ad gate removed — rewarded ad shows only when user taps Start.
 
   const start = async () => {
     if (!session.hasUnlocked || session.chancesLeft <= 0) {
@@ -217,7 +213,9 @@ export default function HigherLower() {
             disabled={busy}
             testID="hl-start-btn"
           >
-            <Text style={styles.startTxt}>Start Round</Text>
+            <Text style={styles.startTxt}>
+              {(!session.hasUnlocked || session.chancesLeft <= 0) ? "Watch Ad to Get Chances" : "Start Round"}
+            </Text>
           </TouchableOpacity>
         )}
 

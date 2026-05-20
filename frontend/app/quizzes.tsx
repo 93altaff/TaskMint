@@ -21,6 +21,7 @@ export default function Quizzes() {
   const [reward, setReward] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showInterstitial, setShowInterstitial] = useState(false);
+  const [adAcknowledged, setAdAcknowledged] = useState(true);
 
   const used = user?.daily_quizzes_used ?? 0;
   const left = Math.max(0, 5 - used);
@@ -68,6 +69,7 @@ export default function Quizzes() {
       });
       setReward(r.reward);
       await refreshUser();
+      setAdAcknowledged(false);
       setShowInterstitial(true);
       setDone(true);
     } catch (e: any) {
@@ -126,7 +128,7 @@ export default function Quizzes() {
         <Text style={styles.intro}>5 quizzes per day • 30-100 pts each • {left}/5 left</Text>
         <InterstitialAdModal
           visible={showInterstitial}
-          onDone={() => setShowInterstitial(false)}
+          onDone={() => { setShowInterstitial(false); setAdAcknowledged(true); }}
           duration={3}
         />
         {!done ? (
@@ -152,8 +154,8 @@ export default function Quizzes() {
             <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
             <Text style={styles.doneTitle}>+{reward} points</Text>
             <Text style={styles.doneBody}>Great job! Keep going to earn more.</Text>
-            <TouchableOpacity style={[styles.btn, left <= 0 && { backgroundColor: theme.colors.muted }]} onPress={load} disabled={left <= 0} testID="quiz-restart">
-              <Text style={styles.btnText}>{left <= 0 ? "Come back tomorrow" : "Play again"}</Text>
+            <TouchableOpacity style={[styles.btn, (left <= 0 || !adAcknowledged) && { backgroundColor: theme.colors.muted }]} onPress={load} disabled={left <= 0 || !adAcknowledged} testID="quiz-restart">
+              <Text style={styles.btnText}>{left <= 0 ? "Come back tomorrow" : (!adAcknowledged ? "Watching ad…" : "Play again")}</Text>
             </TouchableOpacity>
             <NativeAd testID="quiz-native-ad-after" />
           </View>

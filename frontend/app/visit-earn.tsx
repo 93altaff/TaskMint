@@ -1,8 +1,8 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Linking, Platform } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Linking, Platform, AppState, AppStateStatus } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { ChevronLeft, Globe, Check } from "lucide-react-native";
+import { ChevronLeft, Globe, Check, Gift, Clock } from "lucide-react-native";
 import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
@@ -10,6 +10,9 @@ import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import NativeAd from "../src/components/NativeAd";
 
 type Site = { id: string; title: string; url: string; active: boolean };
+type Phase = "idle" | "waiting_return" | "countdown" | "claim_ready";
+
+const COUNTDOWN_SECONDS = 3;
 
 export default function VisitEarn() {
   const router = useRouter();
@@ -19,6 +22,9 @@ export default function VisitEarn() {
   const [loading, setLoading] = useState(true);
   const [adVisible, setAdVisible] = useState(false);
   const [active, setActive] = useState<Site | null>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -38,12 +44,41 @@ export default function VisitEarn() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // Detect when the user returns to the app after visiting a site.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      // App came back to foreground while waiting for the visit to complete.
+      if (prev.match(/inactive|background/) && next === "active" && phase === "waiting_return") {
+        setPhase("countdown");
+        setCountdown(COUNTDOWN_SECONDS);
+      }
+    });
+    return () => sub.remove();
+  }, [phase]);
+
+  // 3-second countdown after returning.
+  useEffect(() => {
+    if (phase !== "countdown") return;
+    if (countdown <= 0) {
+      setPhase("claim_ready");
+      return;
+    }
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [phase, countdown]);
+
+  // Web fallback (no AppState background event on web): start countdown
+  // shortly after opening the URL in a new tab.
   const start = async (s: Site) => {
+    if (phase !== "idle") return; // disable while another visit is in progress
     if (doneIds.includes(s.id)) {
       Alert.alert("Already completed", "You've already earned from this site today. Try another.");
       return;
     }
     setActive(s);
+    setPhase("waiting_return");
     try {
       const supported = await Linking.canOpenURL(s.url);
       if (supported) {
@@ -53,19 +88,35 @@ export default function VisitEarn() {
       } else {
         Alert.alert("Invalid URL", `Cannot open ${s.url}`);
         setActive(null);
+        setPhase("idle");
         return;
       }
     } catch {
       Alert.alert("Error", `Could not open ${s.url}`);
       setActive(null);
+      setPhase("idle");
       return;
     }
-    setTimeout(() => setAdVisible(true), 800);
+    // On web (or if AppState doesn't fire) start the countdown after a short delay.
+    if (Platform.OS === "web") {
+      setTimeout(() => {
+        setPhase("countdown");
+        setCountdown(COUNTDOWN_SECONDS);
+      }, 800);
+    }
+  };
+
+  const onClaim = () => {
+    if (phase !== "claim_ready") return;
+    setAdVisible(true);
   };
 
   const onReward = async () => {
     setAdVisible(false);
-    if (!active) return;
+    if (!active) {
+      setPhase("idle");
+      return;
+    }
     try {
       const r = await api<{ reward: number }>("/tasks/visit", {
         method: "POST",
@@ -78,9 +129,12 @@ export default function VisitEarn() {
       Alert.alert("Error", e?.message || "Try again");
     } finally {
       setActive(null);
+      setPhase("idle");
+      setCountdown(COUNTDOWN_SECONDS);
     }
   };
   const allCompleted = !loading && sites.length > 0 && doneIds.length >= sites.length;
+  const otherTasksDisabled = phase !== "idle";
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -108,14 +162,48 @@ export default function VisitEarn() {
         ) : (
           <>
             <Text style={styles.intro}>Visit partner sites to earn 30-100 points each. One reward per site per day.</Text>
+
+            {/* Active visit pending — countdown or claim banner */}
+            {active && phase !== "idle" && (
+              <View style={styles.pendingCard} testID="visit-pending">
+                <View style={styles.pendingIcon}>
+                  {phase === "claim_ready"
+                    ? <Gift size={28} color={theme.colors.success} />
+                    : <Clock size={28} color={theme.colors.primary} />}
+                </View>
+                <Text style={styles.pendingTitle} numberOfLines={1}>{active.title}</Text>
+                {phase === "waiting_return" && (
+                  <Text style={styles.pendingSub}>Return to the app after visiting…</Text>
+                )}
+                {phase === "countdown" && (
+                  <Text style={styles.pendingSub}>
+                    Verifying… <Text style={styles.countdownNum} testID="visit-countdown">{countdown}s</Text>
+                  </Text>
+                )}
+                {phase === "claim_ready" && (
+                  <TouchableOpacity
+                    style={styles.claimBtn}
+                    onPress={onClaim}
+                    testID="visit-claim-btn"
+                    activeOpacity={0.85}
+                  >
+                    <Gift size={18} color="#fff" />
+                    <Text style={styles.claimBtnTxt}>Claim Reward</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
             <NativeAd testID="visit-native-ad" />
             {sites.map((s) => {
               const d = doneIds.includes(s.id);
+              const isActiveItem = active?.id === s.id;
+              const disabled = d || (otherTasksDisabled && !isActiveItem) || isActiveItem;
               return (
                 <TouchableOpacity
-                  key={s.id} onPress={() => start(s)} disabled={d}
+                  key={s.id} onPress={() => start(s)} disabled={disabled}
                   activeOpacity={0.85}
-                  style={[styles.row, d && { opacity: 0.55 }]}
+                  style={[styles.row, (d || disabled) && { opacity: 0.55 }]}
                   testID={`visit-${s.id}`}
                 >
                   <View style={[styles.icon, d && { backgroundColor: "rgba(16,185,129,0.12)" }]}>
@@ -156,6 +244,30 @@ const styles = StyleSheet.create({
   rsub: { fontSize: 12, color: theme.colors.muted, marginTop: 2 },
   rwd: { color: theme.colors.success, fontSize: 14, fontWeight: "800" },
   empty: { textAlign: "center", color: theme.colors.muted, marginTop: 12, fontWeight: "600" },
+  pendingCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radii.xl,
+    padding: theme.spacing.lg,
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 2,
+    borderColor: theme.colors.primary,
+  },
+  pendingIcon: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: theme.colors.primarySoft,
+    alignItems: "center", justifyContent: "center",
+  },
+  pendingTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
+  pendingSub: { color: theme.colors.muted, fontSize: 13, textAlign: "center" },
+  countdownNum: { color: theme.colors.primary, fontWeight: "900", fontSize: 16 },
+  claimBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: theme.colors.success,
+    paddingHorizontal: 22, paddingVertical: 12,
+    borderRadius: 999, marginTop: 6,
+  },
+  claimBtnTxt: { color: "#fff", fontWeight: "800", fontSize: 15 },
   doneCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radii.xl, padding: theme.spacing.lg,

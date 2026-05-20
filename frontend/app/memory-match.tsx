@@ -49,11 +49,7 @@ export default function MemoryMatch() {
     setGameOver(false);
   }, []);
 
-  // Show rewarded ad on first mount.
-  useEffect(() => {
-    if (!session.hydrated) return;
-    if (!session.hasUnlocked) setShowRewardedAd(true);
-  }, [session.hydrated, session.hasUnlocked]);
+  // First-mount ad gate removed — rewarded ad shows only when user taps Restart/Play.
 
   useEffect(() => {
     if (!startedAt || gameOver) return;
@@ -155,7 +151,11 @@ export default function MemoryMatch() {
       </View>
 
       <TouchableOpacity style={styles.newBtn} onPress={startNew} testID="memory-new">
-        <Text style={styles.newBtnTxt}>{gameOver ? "Play Again" : "Restart"}</Text>
+        <Text style={styles.newBtnTxt}>
+          {(!session.hasUnlocked || session.chancesLeft <= 0)
+            ? "Watch Ad to Get Chances"
+            : (gameOver ? "Play Again" : "Restart")}
+        </Text>
       </TouchableOpacity>
       <Text style={styles.hint}>Reward: 50–100 pts per completion</Text>
 

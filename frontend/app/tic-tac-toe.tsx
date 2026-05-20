@@ -71,12 +71,6 @@ export default function TicTacToe() {
   const [winnerInfo, setWinnerInfo] = useState<{ winner: Cell; line: number[] | null }>({ winner: null, line: null });
   const [winPopup, setWinPopup] = useState<{ visible: boolean; points: number; title: string } | null>(null);
 
-  // Show the gate on first mount.
-  useEffect(() => {
-    if (!session.hydrated) return;
-    if (!session.hasUnlocked) setShowRewardedAd(true);
-  }, [session.hydrated, session.hasUnlocked]);
-
   // Show interstitial when triggered.
   useEffect(() => {
     if (!session.shouldShowInterstitial) return;
@@ -194,7 +188,11 @@ export default function TicTacToe() {
       )}
 
       <TouchableOpacity style={styles.newBtn} onPress={newGame} testID="ttt-new">
-        <Text style={styles.newBtnTxt}>{over ? "Play Again" : "Restart"}</Text>
+        <Text style={styles.newBtnTxt}>
+          {(!session.hasUnlocked || session.chancesLeft <= 0)
+            ? "Watch Ad to Get Chances"
+            : (over ? "Play Again" : "Restart")}
+        </Text>
       </TouchableOpacity>
 
       <RewardedAdModal

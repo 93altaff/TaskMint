@@ -52,11 +52,7 @@ export default function MathSprint() {
   const startRef = useRef(0);
   const submittedRef = useRef(false);
 
-  // First-mount ad gate.
-  useEffect(() => {
-    if (!session.hydrated) return;
-    if (!session.hasUnlocked) setShowRewardedAd(true);
-  }, [session.hydrated, session.hasUnlocked]);
+  // First-mount ad gate removed — rewarded ad shows only when user taps Start Sprint.
 
   const submit = useCallback(async () => {
     if (submittedRef.current) return;
@@ -147,7 +143,9 @@ export default function MathSprint() {
             Chances left: {session.chancesLeft} / 10
           </Text>
           <TouchableOpacity style={styles.startBtn} onPress={start} testID="math-start">
-            <Text style={styles.startBtnTxt}>Start Sprint</Text>
+            <Text style={styles.startBtnTxt}>
+              {(!session.hasUnlocked || session.chancesLeft <= 0) ? "Watch Ad to Get Chances" : "Start Sprint"}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
