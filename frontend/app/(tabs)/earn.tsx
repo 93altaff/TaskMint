@@ -184,16 +184,9 @@ export default function EarnScreen() {
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* Games */}
-        <Text style={styles.sectionLabel}>Play & Earn</Text>
-        <View style={styles.gameGrid}>
-          {GAME_HEROES.map((g) => (
-            <GradientCard key={g.key} cfg={g} height={120} onPress={() => open(g.route)} testID={`earn-game-${g.key}`} />
-          ))}
-        </View>
-
+        {/* Games & Task — unified grid (games + quick tasks) */}
         <View style={styles.quickHead}>
-          <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>Quick Tasks</Text>
+          <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>Games & Task</Text>
           <TouchableOpacity
             style={styles.refreshBtn}
             onPress={() => {
@@ -207,6 +200,9 @@ export default function EarnScreen() {
           </TouchableOpacity>
         </View>
         <View style={styles.grid} key={refreshKey}>
+          {GAME_HEROES.map((g) => (
+            <GradientCard key={g.key} cfg={g} height={140} onPress={() => open(g.route)} testID={`earn-game-${g.key}`} />
+          ))}
           {QUICK_TASKS.map((t) => (
             <GradientCard key={t.key} cfg={t} height={140} onPress={() => open(t.route)} testID={`earn-${t.key}`} />
           ))}
@@ -344,7 +340,7 @@ const styles = StyleSheet.create({
     fontSize: 18, fontWeight: "800", color: theme.colors.text,
     marginTop: 20, marginBottom: 12,
   },
-  gameGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  gameGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" }, // legacy, kept to avoid breaking other refs
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
 
   quickHead: {

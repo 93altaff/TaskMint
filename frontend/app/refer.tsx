@@ -4,6 +4,7 @@ import {
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { Copy, Share2, Users, Gift, Check, UserPlus } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { useAuth } from "../src/context/AuthContext";
@@ -124,16 +125,26 @@ export default function ReferScreen() {
         >
           <Text style={styles.title}>Refer & Earn</Text>
 
-          <View style={styles.hero}>
-            <View style={styles.heroIcon}>
-              <Gift size={32} color="#fff" />
-            </View>
-            <Text style={styles.heroTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6}>
-              {info?.hero_title || "Earn ₹10 per friend"}
-            </Text>
-            <Text style={styles.heroBody} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.85}>
-              {info?.hero_subtitle || "₹10 at 7-day streak • ₹20 at 15-day streak"}
-            </Text>
+          <View style={styles.heroWrap}>
+            <LinearGradient
+              colors={["#4F46E5", "#7C3AED"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.hero}
+            >
+              <View style={styles.heroWatermark} pointerEvents="none">
+                <Gift size={180} color="rgba(255,255,255,0.18)" />
+              </View>
+              <View style={styles.heroIcon}>
+                <Gift size={32} color="#fff" />
+              </View>
+              <Text style={styles.heroTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6}>
+                {info?.hero_title || "Earn ₹10 per friend"}
+              </Text>
+              <Text style={styles.heroBody} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {info?.hero_subtitle || "₹10 at 7-day streak • ₹20 at 15-day streak"}
+              </Text>
+            </LinearGradient>
           </View>
 
           <Text style={styles.label}>YOUR REFERRAL CODE (YOUR NAME)</Text>
@@ -145,9 +156,16 @@ export default function ReferScreen() {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.shareBtn} onPress={share} testID="share-code-btn">
-            <Share2 size={18} color="#fff" />
-            <Text style={styles.shareText}>Share with Friends</Text>
+          <TouchableOpacity activeOpacity={0.85} onPress={share} testID="share-code-btn" style={styles.shareBtnWrap}>
+            <LinearGradient
+              colors={["#10B981", "#059669"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.shareBtn}
+            >
+              <Share2 size={18} color="#fff" />
+              <Text style={styles.shareText}>Share with Friends</Text>
+            </LinearGradient>
           </TouchableOpacity>
 
           {/* Apply referral code (only before first check-in & if not already referred) */}
@@ -285,12 +303,22 @@ const styles = StyleSheet.create({
   scroll: { padding: theme.spacing.lg, paddingBottom: 16 },
   title: { fontSize: 28, fontWeight: "800", color: theme.colors.text, marginBottom: theme.spacing.md },
   hero: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.radii.xl,
     padding: theme.spacing.lg,
     alignItems: "center",
+    overflow: "hidden",
+  },
+  heroWrap: {
+    borderRadius: theme.radii.xl,
+    overflow: "hidden",
     marginBottom: theme.spacing.lg,
-    ...theme.shadow.soft,
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "#000", shadowOpacity: 0.15, shadowOffset: { width: 0, height: 6 }, shadowRadius: 14 }
+      : { elevation: 5 }),
+  },
+  heroWatermark: {
+    position: "absolute",
+    right: -40, top: -50,
+    transform: [{ rotate: "-12deg" }],
   },
   heroIcon: {
     width: 64, height: 64, borderRadius: 32,
@@ -311,12 +339,18 @@ const styles = StyleSheet.create({
   code: { fontSize: 22, fontWeight: "800", color: theme.colors.text, letterSpacing: 2 },
   copyBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: theme.colors.primarySoft, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
   copyText: { color: theme.colors.primary, fontWeight: "700", fontSize: 13 },
+  shareBtnWrap: {
+    borderRadius: theme.radii.lg,
+    overflow: "hidden",
+    marginBottom: theme.spacing.lg,
+    ...(Platform.OS === "ios"
+      ? { shadowColor: "#000", shadowOpacity: 0.12, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10 }
+      : { elevation: 3 }),
+  },
   shareBtn: {
-    backgroundColor: theme.colors.primary,
-    height: 56, borderRadius: theme.radii.lg,
+    height: 56,
     alignItems: "center", justifyContent: "center",
     flexDirection: "row", gap: 10,
-    marginBottom: theme.spacing.lg,
   },
   shareText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 

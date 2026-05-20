@@ -69,7 +69,19 @@ export default function HomeScreen() {
 
   const openLink = (url?: string) => {
     if (!url) return;
-    Linking.openURL(url).catch(() => Alert.alert("Cannot open link"));
+    const trimmed = url.trim();
+    // Internal app routes: anything starting with "/" (e.g. /spin, /task/cmp_xxx, /quizzes).
+    if (trimmed.startsWith("/")) {
+      router.push(trimmed as any);
+      return;
+    }
+    // Bare campaign IDs (e.g. "cmp_5a190dc198") → open the campaign task screen.
+    if (/^cmp_[a-z0-9]+$/i.test(trimmed)) {
+      router.push(`/task/${trimmed}` as any);
+      return;
+    }
+    // External URLs.
+    Linking.openURL(trimmed).catch(() => Alert.alert("Cannot open link"));
   };
 
   const startCampaign = (c: Campaign) => {

@@ -127,6 +127,9 @@ export default function AdminBanners() {
             <TextInput value={link} onChangeText={setLink} placeholder="Link URL (opens on tap)"
               placeholderTextColor={theme.colors.muted} style={styles.input} autoCapitalize="none"
               testID="banner-link" />
+            <Text style={styles.hint}>
+              {"Tip: use an internal route like /spin, /scratch, /visit-earn, /watch-earn, /surveys, /quizzes, /higher-lower, /memory-match, /tic-tac-toe, /math-sprint, /daily-challenge, /checkin, /refer, /wallet/withdraw  •  For a campaign use /task/<campaign_id> or paste just the cmp_ id  •  Or any https://… URL for external."}
+            </Text>
             <TouchableOpacity style={styles.cta} onPress={save} testID="banner-save">
               {editId ? <Pencil size={18} color="#fff" /> : <Plus size={18} color="#fff" />}
               <Text style={styles.ctaText}>{editId ? "Save Changes" : "Add Banner"}</Text>
@@ -187,6 +190,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary, paddingVertical: 14, borderRadius: theme.radii.md,
   },
   ctaText: { color: "#fff", fontWeight: "800" },
+  hint: { fontSize: 11, color: theme.colors.muted, lineHeight: 16, marginTop: -4, marginBottom: 2 },
   item: {
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: theme.colors.surface, padding: theme.spacing.md,
