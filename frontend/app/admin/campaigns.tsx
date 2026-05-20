@@ -5,7 +5,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { ChevronLeft, Plus, Trash2, Pencil, Eye, EyeOff, Pin, PinOff, X } from "lucide-react-native";
+import { ChevronLeft, Plus, Trash2, Pencil, Eye, EyeOff, Pin, PinOff, X, Copy } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
 import ImagePickerField from "../../src/components/ImagePickerField";
@@ -234,6 +235,21 @@ export default function AdminCampaigns() {
                 </View>
                 <Text style={styles.itemSub} numberOfLines={1}>{c.note}</Text>
                 <Text style={styles.itemReward}>₹{c.reward_inr} • {c.reward_points} pts • {c.category}</Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    const deepLink = `/task/${c.id}`;
+                    try {
+                      await Clipboard.setStringAsync(deepLink);
+                      Alert.alert("Copied", `Deep link copied:\n${deepLink}\n\nPaste it into a banner's "Link URL" to open this campaign on tap.`);
+                    } catch {}
+                  }}
+                  style={styles.idPill}
+                  testID={`cmp-copy-id-${c.id}`}
+                  activeOpacity={0.7}
+                >
+                  <Copy size={11} color={theme.colors.primary} />
+                  <Text style={styles.idPillText} numberOfLines={1}>{c.id}</Text>
+                </TouchableOpacity>
                 <View style={styles.actionRow}>
                   <TouchableOpacity onPress={() => startEdit(c)} style={styles.iconBtn} testID={`cmp-edit-${c.id}`}>
                     <Pencil size={16} color={theme.colors.primary} />
@@ -307,6 +323,13 @@ const styles = StyleSheet.create({
   itemTitle: { fontSize: 15, fontWeight: "800", color: theme.colors.text },
   itemSub: { fontSize: 12, color: theme.colors.muted, marginTop: 2 },
   itemReward: { fontSize: 12, color: theme.colors.success, fontWeight: "700", marginTop: 2 },
+  idPill: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: theme.colors.primarySoft,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 999, alignSelf: "flex-start", marginTop: 6,
+  },
+  idPillText: { color: theme.colors.primary, fontWeight: "800", fontSize: 11, letterSpacing: 0.5 },
   delBtn: { padding: 8 },
   empty: { color: theme.colors.muted, textAlign: "center", padding: 24 },
 });
