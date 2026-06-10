@@ -1535,6 +1535,7 @@ async def admin_update_withdraw(withdraw_id: str, payload: WithdrawUpdate, _: di
                         await add_points_and_log(
                             referrer["user_id"], bonus, "referral",
                             f"Referral bonus: referee {wd['user_name']} completed withdrawal #{paid_count}",
+                            category="campaign",
                         )
 
     if payload.status == "rejected" and wd["status"] != "rejected":
