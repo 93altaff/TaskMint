@@ -259,8 +259,20 @@ class AdminPasswordLogin(BaseModel):
 
 
 # ---------- Helpers ----------
+# All "day" boundaries (resets, daily limits, streaks, withdrawal caps, etc.)
+# use Asia/Kolkata (IST, UTC+5:30). Stored timestamps remain in UTC ISO; only
+# the "today" / "yesterday" date strings used for daily reset logic are IST.
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+    IST = ZoneInfo("Asia/Kolkata")
+except Exception:  # fallback for environments without zoneinfo
+    IST = timezone(timedelta(hours=5, minutes=30))
+
 def today_str() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(IST).strftime("%Y-%m-%d")
+
+def yesterday_str() -> str:
+    return (datetime.now(IST) - timedelta(days=1)).strftime("%Y-%m-%d")
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -485,16 +497,10 @@ async def auth_session(payload: SessionExchange, response: Response):
 
 @api_router.get("/auth/me")
 async def auth_me(user: dict = Depends(get_current_user)):
-    # Track activity for DAU stat
-    today = today_str()
-    if user.get("last_activity_date") != today:
-        await db.users.update_one(
-            {"user_id": user["user_id"]},
-            {"$set": {"last_activity_date": today, "daily_spins_used": 0, "daily_scratches_used": 0}},
-        )
-        user["last_activity_date"] = today
-        user["daily_spins_used"] = 0
-        user["daily_scratches_used"] = 0
+    # Reset all daily counters at IST midnight (spins, scratches, watches, visits,
+    # surveys, quizzes, memory/ttt/math game plays). Also updates last_activity_date
+    # for DAU stats.
+    user = await reset_daily_limits_if_needed(user)
     return user
 
 
@@ -817,7 +823,7 @@ async def daily_checkin(user: dict = Depends(get_current_user)):
     today = today_str()
     if user.get("last_checkin") == today:
         raise HTTPException(status_code=400, detail="Already checked in today")
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = yesterday_str()
     new_streak = user.get("streak", 0) + 1 if user.get("last_checkin") == yesterday else 1
     # Reward grows with streak: 20..100 (+10 per day, capped at 100)
     reward = min(20 + (new_streak - 1) * 10, 100)
