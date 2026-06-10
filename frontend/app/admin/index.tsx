@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import {
   ChevronLeft, Image as ImageIcon, Megaphone, Wallet, LinkIcon, ChevronRight, Shield,
   Users as UsersIcon, ListChecks, IndianRupee, Globe, Gift, Smartphone, RefreshCw,
-  Megaphone as AdsIcon,
+  Megaphone as AdsIcon, Sliders,
 } from "lucide-react-native";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
@@ -94,6 +94,9 @@ export default function AdminHome() {
         <Tile icon={<AdsIcon size={20} color={theme.colors.primary} />} label="AdMob Settings"
           sub="Banner, Interstitial, Rewarded & Native unit IDs" onPress={() => router.push("/admin/admob")}
           testID="admin-admob" />
+        <Tile icon={<Sliders size={20} color={theme.colors.primary} />} label="App Config"
+          sub="Reward points, exchange ratio, min withdrawal, referral mode, maintenance"
+          onPress={() => router.push("/admin/settings")} testID="admin-settings" />
         <Tile icon={<ImageIcon size={20} color={theme.colors.primary} />} label="Banners"
           sub="Sliding banners on home" onPress={() => router.push("/admin/banners")}
           testID="admin-banners" />

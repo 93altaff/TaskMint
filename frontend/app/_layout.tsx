@@ -9,6 +9,7 @@ import * as Application from "expo-application";
 import { AuthProvider } from "../src/context/AuthContext";
 import NoInternetGate from "../src/components/NoInternetGate";
 import UpdateGate from "../src/components/UpdateGate";
+import MaintenanceGate from "../src/components/MaintenanceGate";
 import { api } from "../src/lib/api";
 import { loadAdSettings } from "../src/lib/adConfig";
 // Metro picks initAdMob.web.ts on web (no-op) and initAdMob.ts on native (real init).
@@ -89,6 +90,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AuthProvider>
           <NoInternetGate>
+            <MaintenanceGate>
             <StatusBar style="dark" hidden />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F7F9FC" } }}>
               <Stack.Screen name="index" />
@@ -117,8 +119,10 @@ export default function RootLayout() {
               <Stack.Screen name="admin/referral-settings" />
               <Stack.Screen name="admin/version" />
               <Stack.Screen name="admin/admob" />
+              <Stack.Screen name="admin/settings" />
               <Stack.Screen name="higher-lower" />
             </Stack>
+            </MaintenanceGate>
           </NoInternetGate>
         </AuthProvider>
       </SafeAreaProvider>

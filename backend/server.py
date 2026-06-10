@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict, Any
 import uuid
 import random
 import httpx
@@ -202,6 +202,43 @@ class AppLinks(BaseModel):
     customer_support: str = ""
     privacy_policy: str = ""
     terms: str = ""
+
+class AppMetaSettings(BaseModel):
+    """Single admin-controlled config doc that powers withdrawal mins, exchange
+    ratio, per-task reward ranges, referral mode, and per-screen maintenance.
+    Stored in `app_settings._id = 'meta'`.
+    """
+    # ----- Wallet -----
+    exchange_points_per_inr: int = 100         # 100 pts = ₹1 by default
+    min_withdrawal_campaign: int = 10000        # points (₹100)
+    min_withdrawal_games_task: int = 10000      # points (₹100)
+    daily_withdrawal_limit: int = 2             # combined withdrawals per day
+
+    # ----- Task / game reward ranges (min..max points) -----
+    spin_min: int = 30;       spin_max: int = 100
+    scratch_min: int = 30;    scratch_max: int = 100
+    visit_min: int = 30;      visit_max: int = 100
+    watch_min: int = 50;      watch_max: int = 100
+    survey_min: int = 30;     survey_max: int = 100
+    quiz_min: int = 30;       quiz_max: int = 100
+    higherlower_per_correct: int = 10
+    memory_completion: int = 200
+    ttt_win: int = 100
+    math_per_correct: int = 5
+    checkin_base: int = 20                       # day 1 reward
+    checkin_step: int = 10                       # +N per day after day 1
+    checkin_cap: int = 100                       # cap
+
+    # ----- Referral system -----
+    referral_mode: str = "streak"  # "streak" | "withdrawal" | "both"
+    # Withdrawal-mode tiers: list of {withdrawals: N, points: X}.
+    # e.g. [{"withdrawals":1,"points":1000},{"withdrawals":2,"points":2000},{"withdrawals":3,"points":5000}]
+    referral_withdrawal_tiers: List[Dict[str, int]] = []
+
+    # ----- Maintenance / Coming Soon -----
+    # Map of route path → {enabled: bool, note: str}.
+    # Example: {"/spin": {"enabled": true, "note": "Spin is undergoing improvements"}}
+    maintenance: Dict[str, Dict[str, Any]] = {}
 
 class WithdrawSettings(BaseModel):
     amounts: List[int] = [100, 10000, 30000, 50000]  # in points (₹1, ₹100, ₹300, ₹500)
@@ -429,6 +466,27 @@ async def make_referral_code(name: str) -> str:
 async def get_referral_settings() -> dict:
     doc = await db.referral_settings.find_one({"_id": "singleton"}, {"_id": 0})
     return doc or ReferralSettings().dict()
+
+
+async def get_app_meta() -> dict:
+    """Return the singleton admin-controlled config (`app_settings._id='meta'`),
+    falling back to AppMetaSettings() defaults for any missing field."""
+    doc = await db.app_settings.find_one({"_id": "meta"}, {"_id": 0}) or {}
+    defaults = AppMetaSettings().dict()
+    # merge defaults under doc so any newly added field still has a value
+    merged = {**defaults, **doc}
+    return merged
+
+async def reward_range(field_min: str, field_max: str) -> int:
+    """Sample a random reward between admin-configured min and max."""
+    meta = await get_app_meta()
+    lo = int(meta.get(field_min, 0) or 0)
+    hi = int(meta.get(field_max, lo) or lo)
+    if hi < lo:
+        hi = lo
+    if hi <= 0:
+        return 0
+    return random.randint(lo, hi)
 
 
 # ---------- Auth ----------
@@ -724,7 +782,26 @@ async def get_links():
 @api_router.get("/withdraw-settings")
 async def get_withdraw_settings():
     doc = await db.withdraw_settings.find_one({"_id": "singleton"}, {"_id": 0})
-    return doc or WithdrawSettings().dict()
+    base = doc or WithdrawSettings().dict()
+    # Merge in admin-controlled mins / exchange ratio so client can render thresholds.
+    meta = await get_app_meta()
+    base["exchange_points_per_inr"] = int(meta.get("exchange_points_per_inr", 100) or 100)
+    base["min_withdrawal_campaign"] = int(meta.get("min_withdrawal_campaign", 10000) or 10000)
+    base["min_withdrawal_games_task"] = int(meta.get("min_withdrawal_games_task", 10000) or 10000)
+    base["daily_withdrawal_limit"] = int(meta.get("daily_withdrawal_limit", 2) or 2)
+    return base
+
+@api_router.get("/app-config")
+async def get_public_app_config():
+    """Public read-only subset of the admin meta config — used by client to
+    render reward ranges, withdraw mins, exchange ratio, and maintenance state."""
+    return await get_app_meta()
+
+@api_router.get("/maintenance")
+async def get_maintenance():
+    """Just the maintenance map, polled by every screen on focus."""
+    meta = await get_app_meta()
+    return {"maintenance": meta.get("maintenance", {})}
 
 @api_router.get("/campaign-completions")
 async def my_campaign_completions(user: dict = Depends(get_current_user)):
@@ -825,8 +902,12 @@ async def daily_checkin(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Already checked in today")
     yesterday = yesterday_str()
     new_streak = user.get("streak", 0) + 1 if user.get("last_checkin") == yesterday else 1
-    # Reward grows with streak: 20..100 (+10 per day, capped at 100)
-    reward = min(20 + (new_streak - 1) * 10, 100)
+    # Admin-configurable reward curve: base + step*(streak-1), capped.
+    meta_chk = await get_app_meta()
+    base = int(meta_chk.get("checkin_base", 20) or 20)
+    step = int(meta_chk.get("checkin_step", 10) or 10)
+    cap = int(meta_chk.get("checkin_cap", 100) or 100)
+    reward = min(base + (new_streak - 1) * step, cap)
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {"last_checkin": today, "streak": new_streak}},
@@ -878,7 +959,7 @@ async def spin_wheel(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Daily spin limit reached")
     if user.get("pending_spin_reward", 0) > 0:
         raise HTTPException(status_code=400, detail="Claim previous spin first")
-    reward = random.randint(30, 100)
+    reward = await reward_range("spin_min", "spin_max")
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$inc": {"daily_spins_used": 1}, "$set": {"pending_spin_reward": reward}},
@@ -903,7 +984,7 @@ async def scratch_card(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Daily scratch limit reached")
     if user.get("pending_scratch_reward", 0) > 0:
         raise HTTPException(status_code=400, detail="Claim previous scratch first")
-    reward = random.randint(30, 100)
+    reward = await reward_range("scratch_min", "scratch_max")
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$inc": {"daily_scratches_used": 1}, "$set": {"pending_scratch_reward": reward}},
@@ -951,8 +1032,12 @@ async def watch_video(user: dict = Depends(get_current_user)):
     settings = await get_game_settings()
     cycle_limit = int(settings["watch_cycle_limit"])
     cycle_hours = int(settings["watch_cycle_hours"])
-    r_min = int(settings["watch_reward_min"])
-    r_max = int(settings["watch_reward_max"])
+    # Reward range — admin meta config takes priority over legacy game_settings.
+    meta_for_watch = await get_app_meta()
+    r_min = int(meta_for_watch.get("watch_min", settings["watch_reward_min"]) or 50)
+    r_max = int(meta_for_watch.get("watch_max", settings["watch_reward_max"]) or 100)
+    if r_max < r_min:
+        r_max = r_min
 
     if cycle_used >= cycle_limit:
         resets_at = (started_at + timedelta(hours=cycle_hours)).isoformat()
@@ -1001,7 +1086,7 @@ async def visit_site(payload: VisitCompleteBody, user: dict = Depends(get_curren
     if existing:
         raise HTTPException(status_code=400, detail="This site is already completed today")
 
-    reward = random.randint(30, 100)
+    reward = await reward_range("visit_min", "visit_max")
     await db.visit_completions.insert_one({
         "user_id": user["user_id"],
         "site_id": payload.site_id,
@@ -1091,12 +1176,16 @@ async def random_surveys(limit: int = 5, _: dict = Depends(get_current_user)):
     """Return a fresh, randomly-shuffled subset of surveys for this open."""
     n = max(1, min(limit, len(SURVEY_POOL)))
     sample = random.sample(SURVEY_POOL, n)
+    meta = await get_app_meta()
+    s_min = int(meta.get("survey_min", 30) or 30)
+    s_max = int(meta.get("survey_max", 100) or 100)
+    if s_max < s_min: s_max = s_min
     return [
         {
             "id": str(uuid.uuid4()),
             "title": s["title"],
             "time": s["time"],
-            "reward": random.randint(30, 100),
+            "reward": random.randint(s_min, s_max),
         }
         for s in sample
     ]
@@ -1118,7 +1207,7 @@ async def complete_quiz(payload: SimpleTaskComplete, user: dict = Depends(get_cu
     user = await reset_daily_limits_if_needed(user)
     if user.get("daily_quizzes_used", 0) >= 5:
         raise HTTPException(status_code=400, detail="Daily quiz limit reached")
-    reward = random.randint(30, 100)
+    reward = await reward_range("quiz_min", "quiz_max")
     await db.users.update_one(
         {"user_id": user["user_id"]}, {"$inc": {"daily_quizzes_used": 1}}
     )
@@ -1130,7 +1219,7 @@ async def complete_survey(user: dict = Depends(get_current_user)):
     user = await reset_daily_limits_if_needed(user)
     if user.get("daily_surveys_used", 0) >= 5:
         raise HTTPException(status_code=400, detail="Daily survey limit reached")
-    reward = random.randint(30, 100)
+    reward = await reward_range("survey_min", "survey_max")
     await db.users.update_one(
         {"user_id": user["user_id"]}, {"$inc": {"daily_surveys_used": 1}}
     )
@@ -1295,14 +1384,29 @@ async def submit_withdraw(payload: WithdrawCreate, user: dict = Depends(get_curr
             detail=f"Insufficient {source.replace('_', ' & ')} balance ({bucket_balance} pts available)",
         )
 
-    # --- Combined 2/day cap ---
+    # --- Admin-configurable mins (per source) + exchange ratio + daily cap ---
+    meta = await get_app_meta()
+    min_field = "min_withdrawal_campaign" if source == "campaign" else "min_withdrawal_games_task"
+    min_points = int(meta.get(min_field, 10000) or 10000)
+    ratio = int(meta.get("exchange_points_per_inr", 100) or 100)
+    if ratio <= 0:
+        ratio = 100
+    daily_cap = int(meta.get("daily_withdrawal_limit", 2) or 2)
+    if payload.points < min_points:
+        readable = "Campaign" if source == "campaign" else "Games & Task"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Minimum withdrawal from {readable} wallet is {min_points} points (₹{round(min_points/ratio, 2)})",
+        )
+
+    # --- Combined daily cap ---
     today = today_str()
     wd_today_date = user.get("withdrawals_today_date")
     wd_today = int(user.get("withdrawals_today", 0) or 0) if wd_today_date == today else 0
-    if wd_today >= 2:
-        raise HTTPException(status_code=400, detail="Daily withdrawal limit reached (2 per day). Come back tomorrow.")
+    if wd_today >= daily_cap:
+        raise HTTPException(status_code=400, detail=f"Daily withdrawal limit reached ({daily_cap} per day). Come back tomorrow.")
 
-    inr = payload.points / 100.0
+    inr = round(payload.points / float(ratio), 2)
     wd = WithdrawRequest(
         user_id=user["user_id"], user_name=user["name"], user_email=user["email"],
         method=payload.method, source=source, points=payload.points, inr_amount=inr,
@@ -1408,6 +1512,31 @@ async def admin_update_withdraw(withdraw_id: str, payload: WithdrawUpdate, _: di
         raise HTTPException(status_code=404, detail="Not found")
     update = {"status": payload.status, "admin_note": payload.admin_note or "", "updated_at": now_iso()}
     await db.withdrawals.update_one({"id": withdraw_id}, {"$set": update})
+
+    # ----- Referral payout on successful withdrawal (mode = withdrawal / both) -----
+    if payload.status == "paid" and wd.get("status") != "paid":
+        meta = await get_app_meta()
+        mode = (meta.get("referral_mode") or "streak").lower()
+        if mode in ("withdrawal", "both"):
+            user_doc = await db.users.find_one({"user_id": wd["user_id"]}, {"_id": 0, "referred_by": 1})
+            referrer_code = (user_doc or {}).get("referred_by")
+            if referrer_code:
+                referrer = await db.users.find_one({"referral_code": referrer_code}, {"_id": 0, "user_id": 1})
+                if referrer:
+                    # Count successful (paid) withdrawals so far for this referred user.
+                    paid_count = await db.withdrawals.count_documents({
+                        "user_id": wd["user_id"], "status": "paid"
+                    })
+                    # Find matching tier where withdrawals == paid_count.
+                    tiers = meta.get("referral_withdrawal_tiers") or []
+                    matched = next((t for t in tiers if int(t.get("withdrawals", 0)) == paid_count), None)
+                    if matched and int(matched.get("points", 0)) > 0:
+                        bonus = int(matched["points"])
+                        await add_points_and_log(
+                            referrer["user_id"], bonus, "referral",
+                            f"Referral bonus: referee {wd['user_name']} completed withdrawal #{paid_count}",
+                        )
+
     if payload.status == "rejected" and wd["status"] != "rejected":
         # refund points to the SAME bucket they were drawn from (legacy
         # rows without `source` default to games_task).
@@ -1711,6 +1840,19 @@ async def admin_get_admob_settings(_: dict = Depends(require_admin)):
 async def admin_update_admob_settings(payload: AdMobSettings, _: dict = Depends(require_admin)):
     await db.app_settings.update_one(
         {"_id": "admob"}, {"$set": payload.dict()}, upsert=True
+    )
+    return payload.dict()
+
+
+# ---------- App Meta (per-task rewards, exchange ratio, mins, referral mode, maintenance) ----------
+@api_router.get("/admin/app-config")
+async def admin_get_app_config(_: dict = Depends(require_admin)):
+    return await get_app_meta()
+
+@api_router.put("/admin/app-config")
+async def admin_update_app_config(payload: AppMetaSettings, _: dict = Depends(require_admin)):
+    await db.app_settings.update_one(
+        {"_id": "meta"}, {"$set": payload.dict()}, upsert=True
     )
     return payload.dict()
 
@@ -2350,8 +2492,9 @@ async def memory_state(user: dict = Depends(get_current_user)):
 async def memory_play(payload: MemoryPlayBody, user: dict = Depends(get_current_user)):
     if not payload.completed:
         return {"reward": 0, "remaining": -1}
-    # Per spec: 50-100 random points on completion.
-    reward = random.randint(50, 100)
+    # Admin-configurable completion reward (default 200).
+    meta = await get_app_meta()
+    reward = int(meta.get("memory_completion", 200) or 200)
     await add_points_and_log(user["user_id"], reward, "memory", f"Memory match: {int(payload.moves or 0)} moves, {int(payload.time_seconds or 0)}s")
     return {"reward": reward, "remaining": -1}
 
@@ -2367,10 +2510,13 @@ async def tictactoe_state(user: dict = Depends(get_current_user)):
 
 @api_router.post("/games/tictactoe/play")
 async def tictactoe_play(payload: TicTacToePlayBody, user: dict = Depends(get_current_user)):
+    meta = await get_app_meta()
+    # Admin sets the "hard win" payout, easy/medium scale to 30% / 60%.
+    base_win = int(meta.get("ttt_win", 100) or 100)
     rewards = {
-        "easy":   {"win": 30, "draw": 10, "loss": 0},
-        "medium": {"win": 60, "draw": 20, "loss": 0},
-        "hard":   {"win": 100, "draw": 30, "loss": 0},
+        "easy":   {"win": int(base_win * 0.3), "draw": int(base_win * 0.1), "loss": 0},
+        "medium": {"win": int(base_win * 0.6), "draw": int(base_win * 0.2), "loss": 0},
+        "hard":   {"win": base_win,            "draw": int(base_win * 0.3), "loss": 0},
     }
     reward = rewards[payload.difficulty][payload.result]
     if reward > 0:
@@ -2394,17 +2540,10 @@ async def math_state(user: dict = Depends(get_current_user)):
 @api_router.post("/games/math/play")
 async def math_play(payload: MathPlayBody, user: dict = Depends(get_current_user)):
     correct = max(0, int(payload.correct or 0))
-    # Per spec: threshold-based reward, no per-question scaling.
-    if correct >= 10:
-        reward = 150
-    elif correct >= 8:
-        reward = 100
-    elif correct >= 6:
-        reward = 50
-    elif correct >= 4:
-        reward = 30
-    else:
-        reward = 0
+    # Admin-configurable: points per correct answer.
+    meta = await get_app_meta()
+    per_correct = int(meta.get("math_per_correct", 5) or 5)
+    reward = correct * per_correct
     if reward > 0:
         await add_points_and_log(user["user_id"], reward, "math", f"Math Sprint {correct}/{payload.total}")
     return {"reward": reward, "remaining": -1}
