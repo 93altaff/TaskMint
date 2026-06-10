@@ -34,4 +34,17 @@ export const theme = {
 
 export const ADMIN_EMAIL = "93altaff@gmail.com";
 
-export const pointsToInr = (p: number) => (p / 100).toFixed(2);
+// ---- Admin-controlled exchange ratio (points per ₹1) ----
+// Default is 100 — overridden at runtime by AuthContext fetching /api/withdraw-settings
+// or /api/app-config on app start. All UI conversions read from this live value so
+// admin changes immediately reflect in BalanceCard, withdraw screen, refer payout
+// previews, admin lists, etc.
+let _exchangeRatio = 100;
+
+export function setExchangeRatio(n: number) {
+  if (typeof n === "number" && n > 0) _exchangeRatio = n;
+}
+export function getExchangeRatio(): number {
+  return _exchangeRatio;
+}
+export const pointsToInr = (p: number) => (p / _exchangeRatio).toFixed(2);

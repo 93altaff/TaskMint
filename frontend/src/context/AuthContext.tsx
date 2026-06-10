@@ -5,6 +5,7 @@ import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as Crypto from "expo-crypto";
 import { api, clearToken, getToken, setToken } from "../lib/api";
+import { setExchangeRatio } from "../lib/theme";
 
 export type AppUser = {
   user_id: string;
@@ -174,6 +175,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const adminLogout = useCallback(async () => {
     const res = await api<{ user: AppUser }>("/auth/admin-logout", { method: "POST" });
     setUser(res.user);
+  }, []);
+
+  useEffect(() => {
+    // Sync the live admin-controlled exchange ratio on every cold-start so all
+    // UI conversions (BalanceCard, withdraw, refer payout previews) use the
+    // current value, not the hardcoded 100.
+    (async () => {
+      try {
+        const ws = await api<{ exchange_points_per_inr?: number }>("/withdraw-settings", { auth: false });
+        if (ws?.exchange_points_per_inr) setExchangeRatio(ws.exchange_points_per_inr);
+      } catch {}
+    })();
   }, []);
 
   useEffect(() => {

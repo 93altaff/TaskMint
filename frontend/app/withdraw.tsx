@@ -9,7 +9,7 @@ import {
   ChevronLeft, Smartphone, Building2, Check, Clock, X, AlertCircle,
   Gamepad2, Megaphone,
 } from "lucide-react-native";
-import { theme, pointsToInr } from "../src/lib/theme";
+import { theme, pointsToInr, setExchangeRatio } from "../src/lib/theme";
 import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
 import BalanceCard from "../src/components/BalanceCard";
@@ -26,7 +26,13 @@ type WD = {
   admin_note?: string;
 };
 
-type WSettings = { amounts: number[] };
+type WSettings = {
+  amounts: number[];
+  exchange_points_per_inr?: number;
+  min_withdrawal_campaign?: number;
+  min_withdrawal_games_task?: number;
+  daily_withdrawal_limit?: number;
+};
 
 export default function WithdrawScreen() {
   const router = useRouter();
@@ -44,6 +50,9 @@ export default function WithdrawScreen() {
   const [history, setHistory] = useState<WD[]>([]);
   const [loading, setLoading] = useState(true);
   const [amounts, setAmounts] = useState<number[]>([100, 10000, 30000, 50000]);
+  const [minCampaign, setMinCampaign] = useState<number>(10000);
+  const [minGT, setMinGT] = useState<number>(10000);
+  const [dailyLimit, setDailyLimit] = useState<number>(2);
   const [error, setError] = useState<string | null>(null);
   const [showAdAfter, setShowAdAfter] = useState(false);
   const [mobile1, setMobile1] = useState("");
@@ -65,6 +74,10 @@ export default function WithdrawScreen() {
     try {
       const s = await api<WSettings>("/withdraw-settings", { auth: false });
       setAmounts(s.amounts || [100, 10000, 30000, 50000]);
+      if (s.exchange_points_per_inr) setExchangeRatio(s.exchange_points_per_inr);
+      if (typeof s.min_withdrawal_campaign === "number") setMinCampaign(s.min_withdrawal_campaign);
+      if (typeof s.min_withdrawal_games_task === "number") setMinGT(s.min_withdrawal_games_task);
+      if (typeof s.daily_withdrawal_limit === "number") setDailyLimit(s.daily_withdrawal_limit);
     } catch {}
   }, []);
 
@@ -98,6 +111,12 @@ export default function WithdrawScreen() {
       if (!ifsc.trim()) return "Please enter IFSC Code";
     }
     if (points && points > activeBalance) return `Insufficient balance (${activeBalance} pts available)`;
+    // Client-side mirror of the admin-controlled min — keeps the Withdraw button
+    // disabled until the user meets the threshold and tells them what it is.
+    const minForSource = source === "campaign" ? minCampaign : minGT;
+    if (points && points < minForSource) {
+      return `Minimum withdrawal from ${source === "campaign" ? "Campaign" : "Games & Task"} wallet is ${minForSource.toLocaleString()} pts (₹${pointsToInr(minForSource)})`;
+    }
     return null;
   })();
 
@@ -230,7 +249,7 @@ export default function WithdrawScreen() {
                     testID={`amount-${p}`}
                   >
                     <Text style={[styles.chipText, selectedPts === p && { color: "#fff" }]}>
-                      ₹{(p / 100).toFixed(0)}
+                      ₹{pointsToInr(p)}
                     </Text>
                     <Text style={[styles.chipSub, selectedPts === p && { color: "rgba(255,255,255,0.85)" }]}>
                       {p} pts
