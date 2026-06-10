@@ -79,9 +79,7 @@ export default function UpdateGate({
       <View style={styles.body}>
         <TouchableOpacity
           activeOpacity={0.85}
-          delayLongPress={1000}
-          onLongPress={() => setAdminModal(true)}
-          testID="update-admin-trigger"
+          testID="update-logo-wrap"
           {...webNoContextMenu}
         >
           <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
@@ -108,7 +106,10 @@ export default function UpdateGate({
         <TouchableOpacity
           style={styles.btn}
           onPress={() => Linking.openURL(playStoreUrl)}
+          onLongPress={() => setAdminModal(true)}
+          delayLongPress={1500}
           testID="update-btn"
+          {...webNoContextMenu}
         >
           <Download size={18} color="#fff" />
           <Text style={styles.btnText}>Update on {Platform.OS === "ios" ? "App Store" : "Play Store"}</Text>
@@ -118,7 +119,7 @@ export default function UpdateGate({
             <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
         )}
-        <Text style={styles.hint}>Tip: long-press the logo if you're an admin.</Text>
+        <Text style={styles.hint}>Tip: long-press the Update button if you're an admin.</Text>
       </View>
 
       {/* Hidden admin escape (same as MaintenanceGate) */}
