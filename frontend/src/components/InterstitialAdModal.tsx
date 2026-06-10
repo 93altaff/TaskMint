@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import { Modal, View, Text, StyleSheet, TouchableOpacity, Platform } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Modal, View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from "react-native";
 import { theme } from "../lib/theme";
 import { getAdUnitId } from "../lib/adConfig";
 
@@ -18,24 +18,19 @@ try {
 type Props = {
   visible: boolean;
   onDone: () => void;
-  duration?: number; // kept for backward compat / fallback
+  duration?: number;
   testID?: string;
 };
 
-/**
- * Real AdMob Interstitial. When `visible` becomes true we load + show a
- * real interstitial ad and call `onDone` the moment it is dismissed
- * (user closed it or ad errored). On web / Expo Go we fall back to a
- * simple confirmation modal so the caller's flow is never stuck.
- */
 export default function InterstitialAdModal({
   visible, onDone, duration = 3, testID = "interstitial-ad",
 }: Props) {
   const handledRef = useRef(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!visible) { handledRef.current = false; return; }
-    if (!InterstitialAd) return; // web fallback handled below
+    if (!visible) { handledRef.current = false; setLoaded(false); return; }
+    if (!InterstitialAd) return;
 
     handledRef.current = false;
     const unitId = __DEV__ ? TestIds.INTERSTITIAL : getAdUnitId("interstitial");
@@ -51,6 +46,7 @@ export default function InterstitialAdModal({
     };
 
     const unsubLoaded = ad.addAdEventListener(AdEventType.LOADED, () => {
+      setLoaded(true);
       try { ad.show(); } catch (e) { console.log("[Interstitial] show failed:", e); finish(); }
     });
     const unsubClosed = ad.addAdEventListener(AdEventType.CLOSED, finish);
@@ -60,7 +56,6 @@ export default function InterstitialAdModal({
     });
 
     ad.load();
-    // Safety net — if the ad never loads/shows within duration+12s, continue anyway
     const safety = setTimeout(finish, (duration + 12) * 1000);
 
     return () => {
@@ -69,9 +64,23 @@ export default function InterstitialAdModal({
     };
   }, [visible, duration, onDone]);
 
-  // Web / Expo Go fallback: keep a simple countdown modal so callers still work.
-  if (InterstitialAd) return null;
+  // Native: show a "Loading ad…" overlay until the real ad takes over.
+  if (InterstitialAd) {
+    if (!visible || loaded) return null;
+    return (
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.overlay} testID={`${testID}-loading`}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.loadingTitle}>Loading ad…</Text>
+            <Text style={styles.loadingSub}>Just a sec — preparing your next reward.</Text>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
+  // Web / Expo Go fallback
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay} testID={testID}>
@@ -98,4 +107,7 @@ const styles = StyleSheet.create({
   body: { fontSize: 14, color: theme.colors.muted, textAlign: "center", marginVertical: theme.spacing.md },
   btn: { backgroundColor: theme.colors.primary, paddingVertical: 14, paddingHorizontal: 32, borderRadius: theme.radii.lg, marginTop: theme.spacing.sm },
   btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  loadingCard: { backgroundColor: theme.colors.surface, width: "100%", maxWidth: 320, borderRadius: theme.radii.xl, padding: theme.spacing.lg, alignItems: "center", gap: 12 },
+  loadingTitle: { fontSize: 17, fontWeight: "800", color: theme.colors.text, marginTop: 8 },
+  loadingSub: { fontSize: 12, color: theme.colors.muted, textAlign: "center" },
 });

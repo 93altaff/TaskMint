@@ -11,6 +11,7 @@ import {
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
+import HomeSkeleton from "../../src/components/HomeSkeleton";
 
 type Banner = { id: string; title: string; subtitle?: string; image_url: string; link_url?: string };
 type Campaign = {
@@ -30,6 +31,7 @@ export default function HomeScreen() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [completions, setCompletions] = useState<Completion[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [firstLoaded, setFirstLoaded] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const [bannerIndex, setBannerIndex] = useState(0);
 
@@ -44,6 +46,9 @@ export default function HomeScreen() {
       setCampaigns(c);
       setCompletions(comps);
     } catch {}
+    finally {
+      setFirstLoaded(true);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -91,6 +96,12 @@ export default function HomeScreen() {
   const points = user?.points ?? 0;
   const showFirstWithdrawCue = !user?.has_first_withdrawal && points >= 100;
   const completionMap = Object.fromEntries(completions.map((c) => [c.campaign_id, c]));
+
+  // Cold-start: show the Home skeleton until the first data load completes
+  // (or until we at least have a user object).
+  if (!firstLoaded || !user) {
+    return <HomeSkeleton />;
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>

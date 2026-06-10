@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Modal, View, Text, StyleSheet, TouchableOpacity, Platform } from "react-native";
+import { Modal, View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator } from "react-native";
 import { Play, Gift } from "lucide-react-native";
 import { theme } from "../lib/theme";
 import { getAdUnitId } from "../lib/adConfig";
@@ -37,10 +37,11 @@ export default function RewardedAdModal({
 }: Props) {
   const earnedRef = useRef(false);
   const handledRef = useRef(false);
+  const [loaded, setLoaded] = useState(false);
 
   // --- Native path ---------------------------------------------------------
   useEffect(() => {
-    if (!visible) { earnedRef.current = false; handledRef.current = false; return; }
+    if (!visible) { earnedRef.current = false; handledRef.current = false; setLoaded(false); return; }
     if (!RewardedAd) return; // web fallback
 
     const unitId = __DEV__ ? TestIds.REWARDED : getAdUnitId("rewarded");
@@ -57,6 +58,7 @@ export default function RewardedAdModal({
     };
 
     const unsubLoaded = ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
+      setLoaded(true);
       try { ad.show(); } catch (e) { console.log("[Rewarded] show failed:", e); finish(false); }
     });
     const unsubEarned = ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
@@ -93,7 +95,22 @@ export default function RewardedAdModal({
     return () => clearInterval(t);
   }, [visible, duration]);
 
-  if (RewardedAd) return null;
+  if (RewardedAd) {
+    // Native: show a "Loading ad…" overlay while the rewarded ad fetches.
+    // It disappears the moment the AdMob SDK takes over the screen.
+    if (!visible || loaded) return null;
+    return (
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.overlay} testID={`${testID}-loading`}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={styles.loadingTitle}>Loading rewarded ad…</Text>
+            <Text style={styles.loadingSub}>Hang tight — your reward is on the way.</Text>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -139,4 +156,7 @@ const styles = StyleSheet.create({
   success: { backgroundColor: theme.colors.success },
   btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
   cancel: { color: theme.colors.muted, fontSize: 12, marginTop: 8, textDecorationLine: "underline" },
+  loadingCard: { backgroundColor: theme.colors.surface, width: "100%", maxWidth: 320, borderRadius: theme.radii.xl, padding: theme.spacing.lg, alignItems: "center", gap: 12 },
+  loadingTitle: { fontSize: 17, fontWeight: "800", color: theme.colors.text, marginTop: 8 },
+  loadingSub: { fontSize: 12, color: theme.colors.muted, textAlign: "center" },
 });

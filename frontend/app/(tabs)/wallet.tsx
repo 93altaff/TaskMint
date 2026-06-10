@@ -9,6 +9,7 @@ import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
 import BalanceCard from "../../src/components/BalanceCard";
+import { SkeletonRow } from "../../src/components/Skeleton";
 
 type Txn = {
   id: string; type: "earn" | "withdraw"; source: string;
@@ -107,7 +108,12 @@ export default function WalletScreen() {
             })}
           </ScrollView>
           {loading ? (
-            <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 24 }} />
+            <View style={{ gap: 4, marginTop: 8 }}>
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+              <SkeletonRow />
+            </View>
           ) : filtered.length === 0 ? (
             <View style={styles.emptyCard}>
               <Receipt size={36} color={theme.colors.muted} />

@@ -9,6 +9,7 @@ import * as Application from "expo-application";
 import { AuthProvider } from "../src/context/AuthContext";
 import NoInternetGate from "../src/components/NoInternetGate";
 import UpdateGate from "../src/components/UpdateGate";
+import UpdateGateWrapper from "../src/components/UpdateGateWrapper";
 import MaintenanceGate from "../src/components/MaintenanceGate";
 import { api } from "../src/lib/api";
 import { loadAdSettings } from "../src/lib/adConfig";
@@ -69,20 +70,8 @@ export default function RootLayout() {
     })();
   }, []);
 
-  if (versionGate && (versionGate.force_update || !skipped)) {
-    return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <UpdateGate
-            latestVersion={versionGate.latest_version}
-            playStoreUrl={versionGate.play_store_url}
-            forceUpdate={versionGate.force_update}
-            releaseNotes={versionGate.release_notes}
-            onDismiss={() => setSkipped(true)}
-          />
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    );
+  if (false) {
+    return null; // Force-update is now overlaid via UpdateGateWrapper so Profile remains reachable.
   }
 
   return (
@@ -92,6 +81,14 @@ export default function RootLayout() {
           <NoInternetGate>
             <MaintenanceGate>
             <StatusBar style="dark" hidden />
+            <UpdateGateWrapper
+              active={!!versionGate && (versionGate.force_update || !skipped)}
+              latestVersion={versionGate?.latest_version || ""}
+              playStoreUrl={versionGate?.play_store_url || ""}
+              forceUpdate={!!versionGate?.force_update}
+              releaseNotes={versionGate?.release_notes}
+              onSkip={() => setSkipped(true)}
+            >
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F7F9FC" } }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="login" />
@@ -122,6 +119,7 @@ export default function RootLayout() {
               <Stack.Screen name="admin/settings" />
               <Stack.Screen name="higher-lower" />
             </Stack>
+            </UpdateGateWrapper>
             </MaintenanceGate>
           </NoInternetGate>
         </AuthProvider>

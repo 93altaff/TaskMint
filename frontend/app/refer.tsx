@@ -10,6 +10,7 @@ import * as Clipboard from "expo-clipboard";
 import { useAuth } from "../src/context/AuthContext";
 import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
+import Skeleton from "../src/components/Skeleton";
 
 type ReferralInfo = {
   referral_code: string;
@@ -104,9 +105,12 @@ export default function ReferScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={theme.colors.primary} />
-        </View>
+        <ScrollView contentContainerStyle={{ padding: theme.spacing.lg, gap: 14 }}>
+          <Skeleton width="100%" height={140} radius={20} />
+          <Skeleton width="100%" height={56} radius={12} />
+          <Skeleton width="100%" height={120} radius={16} />
+          <Skeleton width="100%" height={100} radius={16} />
+        </ScrollView>
       </SafeAreaView>
     );
   }

@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import { Sparkles, Gift, Coins } from "lucide-react-native";
 import { theme } from "../src/lib/theme";
 import { useAuth } from "../src/context/AuthContext";
+import HomeSkeleton from "../src/components/HomeSkeleton";
 
 const LOGIN_LOGO =
   "https://customer-assets.emergentagent.com/job_mint-tasks-sync/artifacts/ra7gbxi5_file_000000003c3471faa8561013c559c221.png";
@@ -34,6 +35,9 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+      {busy ? (
+        <HomeSkeleton />
+      ) : (
       <View style={styles.wrap} testID="login-screen">
         <View style={styles.brandWrap}>
           <View style={styles.logoCircle}>
@@ -78,6 +82,7 @@ export default function Login() {
           By continuing, you agree to our Terms & Privacy Policy
         </Text>
       </View>
+      )}
     </SafeAreaView>
   );
 }
