@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Image, Animated, Easing, Platform } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, Linking, Image, Animated, Easing,
+  Platform, Modal, TextInput, KeyboardAvoidingView, Alert, ActivityIndicator,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Download } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import { Download, Shield, X } from "lucide-react-native";
 import { theme } from "../lib/theme";
+import { useAuth } from "../context/AuthContext";
 
 type Props = {
   latestVersion: string;
@@ -16,6 +21,12 @@ export default function UpdateGate({
   latestVersion, releaseNotes, playStoreUrl, forceUpdate, onDismiss,
 }: Props) {
   const [pulse] = useState(new Animated.Value(0));
+  const router = useRouter();
+  const { adminLogin } = useAuth();
+  const [adminModal, setAdminModal] = useState(false);
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -30,16 +41,60 @@ export default function UpdateGate({
 
   const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
 
+  // On web, the browser hijacks long-press on <Image> with its own image
+  // context menu. Disable that and route the gesture to the TouchableOpacity.
+  const webNoContextMenu =
+    Platform.OS === "web"
+      ? ({
+          // @ts-ignore — web-only DOM events through RN web's accessibility passthrough
+          onContextMenu: (e: any) => e.preventDefault(),
+          draggable: false,
+          // @ts-ignore
+          style: { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" },
+        } as any)
+      : {};
+
+  const submitAdmin = async () => {
+    if (!email.trim() || !pwd.trim()) {
+      Alert.alert("Required", "Please enter both email and password.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await adminLogin(email.trim(), pwd);
+      setAdminModal(false);
+      setEmail(""); setPwd("");
+      // /admin/* is exempt from update / maintenance gates → admin can sign in
+      // and disable force-update / fix maintenance from /admin/settings.
+      router.push("/admin/settings");
+    } catch (e: any) {
+      Alert.alert("Login failed", e?.message || "Invalid admin credentials.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe} testID="update-gate">
       <View style={styles.body}>
-        <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
-          <Image
-            source={require("../../assets/images/icon.png")}
-            style={styles.icon}
-            resizeMode="contain"
-          />
-        </Animated.View>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          delayLongPress={1000}
+          onLongPress={() => setAdminModal(true)}
+          testID="update-admin-trigger"
+          {...webNoContextMenu}
+        >
+          <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
+            <Image
+              source={require("../../assets/images/icon.png")}
+              style={styles.icon}
+              resizeMode="contain"
+              // Block browser's image context menu so the touch reaches us.
+              {...(Platform.OS === "web" ? ({ draggable: false, pointerEvents: "none" } as any) : {})}
+            />
+          </Animated.View>
+        </TouchableOpacity>
+
         <Text style={styles.title}>New version available</Text>
         <Text style={styles.body2}>
           Please update TaskMint to {`v${latestVersion}`} from the Play Store to continue using the app.
@@ -63,7 +118,56 @@ export default function UpdateGate({
             <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
         )}
+        <Text style={styles.hint}>Tip: long-press the logo if you're an admin.</Text>
       </View>
+
+      {/* Hidden admin escape (same as MaintenanceGate) */}
+      <Modal visible={adminModal} transparent animationType="fade">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalWrap}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Shield size={22} color={theme.colors.primary} />
+              <Text style={styles.modalTitle}>Admin login</Text>
+              <TouchableOpacity onPress={() => setAdminModal(false)} testID="update-admin-close">
+                <X size={22} color={theme.colors.muted} />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="Admin email"
+              placeholderTextColor={theme.colors.muted}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.input}
+              testID="update-admin-email"
+            />
+            <TextInput
+              value={pwd}
+              onChangeText={setPwd}
+              placeholder="Password"
+              placeholderTextColor={theme.colors.muted}
+              secureTextEntry
+              style={styles.input}
+              testID="update-admin-password"
+            />
+            <TouchableOpacity
+              style={[styles.submitBtn, busy && { opacity: 0.7 }]}
+              onPress={submitAdmin}
+              disabled={busy}
+              testID="update-admin-submit"
+              activeOpacity={0.85}
+            >
+              {busy
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.submitTxt}>Sign in & open Admin</Text>}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -98,4 +202,13 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
   skipBtn: { marginTop: 8, paddingVertical: 8 },
   skipText: { color: theme.colors.muted, fontSize: 13, fontWeight: "700" },
+  hint: { color: theme.colors.muted, fontSize: 11, marginTop: 12, opacity: 0.7 },
+
+  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: theme.spacing.lg },
+  modalCard: { backgroundColor: theme.colors.surface, width: "100%", maxWidth: 360, borderRadius: theme.radii.xl, padding: theme.spacing.lg, gap: 12 },
+  modalHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
+  modalTitle: { flex: 1, fontSize: 17, fontWeight: "800", color: theme.colors.text },
+  input: { backgroundColor: theme.colors.bg, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12, color: theme.colors.text, fontSize: 14 },
+  submitBtn: { backgroundColor: theme.colors.primary, paddingVertical: 14, borderRadius: theme.radii.lg, alignItems: "center", marginTop: 4 },
+  submitTxt: { color: "#fff", fontWeight: "800", fontSize: 15 },
 });
