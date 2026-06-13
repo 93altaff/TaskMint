@@ -176,8 +176,9 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.colors.bg },
   body: { flex: 1, alignItems: "center", justifyContent: "center", padding: theme.spacing.lg, gap: 16 },
   iconWrap: {
-    width: 140, height: 140, borderRadius: 36,
+    width: 200, height: 160, borderRadius: 36,
     alignItems: "center", justifyContent: "center",
+    backgroundColor: "#FFFFFF",
     marginBottom: 8,
   },
   icon: { width: 110, height: 110 },
