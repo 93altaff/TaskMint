@@ -119,7 +119,9 @@ export default function UpdateGate({
             <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
         )}
-        <Text style={styles.hint}>Tip: long-press the Update button if you're an admin.</Text>
+        <View style={styles.hintPill}>
+          <Text style={styles.hint}>Hold the Update button to sign in as admin</Text>
+        </View>
       </View>
 
       {/* Hidden admin escape (same as MaintenanceGate) */}
@@ -203,7 +205,14 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
   skipBtn: { marginTop: 8, paddingVertical: 8 },
   skipText: { color: theme.colors.muted, fontSize: 13, fontWeight: "700" },
-  hint: { color: theme.colors.muted, fontSize: 11, marginTop: 12, opacity: 0.7 },
+  hintPill: {
+    marginTop: 16,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(99,102,241,0.12)",
+    borderWidth: 1, borderColor: "rgba(99,102,241,0.35)",
+  },
+  hint: { color: theme.colors.primary, fontSize: 12, fontWeight: "700", textAlign: "center" },
 
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: theme.spacing.lg },
   modalCard: { backgroundColor: theme.colors.surface, width: "100%", maxWidth: 360, borderRadius: theme.radii.xl, padding: theme.spacing.lg, gap: 12 },
