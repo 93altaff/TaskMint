@@ -129,7 +129,6 @@ export default function MaintenanceGate({
         <View style={styles.badge}>
           <Text style={styles.badgeTxt}>Under Maintenance</Text>
         </View>
-        <Text style={styles.hint}>Tip: long-press the icon if you're an admin.</Text>
       </View>
 
       {/* Hidden admin escape */}

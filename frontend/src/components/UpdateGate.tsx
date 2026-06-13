@@ -109,10 +109,13 @@ export default function UpdateGate({
           onLongPress={() => setAdminModal(true)}
           delayLongPress={1500}
           testID="update-btn"
+          activeOpacity={0.85}
           {...webNoContextMenu}
         >
-          <Download size={18} color="#fff" />
-          <Text style={styles.btnText}>Update on {Platform.OS === "ios" ? "App Store" : "Play Store"}</Text>
+          <Download size={20} color="#fff" />
+          <Text style={styles.btnText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+            Update on {Platform.OS === "ios" ? "App Store" : "Play Store"}
+          </Text>
         </TouchableOpacity>
         {!forceUpdate && (
           <TouchableOpacity onPress={onDismiss} style={styles.skipBtn} testID="update-skip">
@@ -196,9 +199,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     paddingVertical: 16, paddingHorizontal: 24,
     borderRadius: theme.radii.lg,
-    marginTop: theme.spacing.md, minWidth: 240,
+    marginTop: theme.spacing.md,
+    alignSelf: "stretch",
+    minHeight: 56,
   },
-  btnText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  btnText: { color: "#fff", fontWeight: "800", fontSize: 16, flexShrink: 1 },
   skipBtn: { marginTop: 8, paddingVertical: 8 },
   skipText: { color: theme.colors.muted, fontSize: 13, fontWeight: "700" },
   hintPill: {
