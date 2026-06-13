@@ -43,7 +43,7 @@ export default function MaintenanceGate({
   const pathname = usePathname();
   const segments = useSegments();
   const router = useRouter();
-  const { adminLogin } = useAuth();
+  const { adminLogin, user } = useAuth();
   const [maintenance, setMaintenance] = useState<MaintenanceMap>(cached.data);
   const [ready, setReady] = useState(cached.at > 0);
   const [adminModal, setAdminModal] = useState(false);
@@ -60,6 +60,10 @@ export default function MaintenanceGate({
     });
     return () => { alive = false; };
   }, [pathname]);
+
+  // Admin bypasses every maintenance gate — once they sign in (e.g. via the
+  // long-press escape) they need full access to disable it.
+  if (user?.is_admin) return <>{children}</>;
 
   if (!ready) return <>{children}</>;
 
