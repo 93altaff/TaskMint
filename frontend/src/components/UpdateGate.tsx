@@ -119,9 +119,6 @@ export default function UpdateGate({
             <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
         )}
-        <View style={styles.hintPill}>
-          <Text style={styles.hint}>Hold the Update button to sign in as admin</Text>
-        </View>
       </View>
 
       {/* Hidden admin escape (same as MaintenanceGate) */}
@@ -181,8 +178,6 @@ const styles = StyleSheet.create({
   iconWrap: {
     width: 140, height: 140, borderRadius: 36,
     alignItems: "center", justifyContent: "center",
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1, borderColor: theme.colors.border,
     marginBottom: 8,
   },
   icon: { width: 110, height: 110 },
