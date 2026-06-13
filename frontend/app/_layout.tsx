@@ -79,16 +79,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AuthProvider>
           <NoInternetGate>
-            <MaintenanceGate>
             <StatusBar style="dark" hidden />
-            <UpdateGateWrapper
-              active={!!versionGate && (versionGate.force_update || !skipped)}
-              latestVersion={versionGate?.latest_version || ""}
-              playStoreUrl={versionGate?.play_store_url || ""}
-              forceUpdate={!!versionGate?.force_update}
-              releaseNotes={versionGate?.release_notes}
-              onSkip={() => setSkipped(true)}
-            >
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F7F9FC" } }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="login" />
@@ -119,8 +110,6 @@ export default function RootLayout() {
               <Stack.Screen name="admin/settings" />
               <Stack.Screen name="higher-lower" />
             </Stack>
-            </UpdateGateWrapper>
-            </MaintenanceGate>
           </NoInternetGate>
         </AuthProvider>
       </SafeAreaProvider>
