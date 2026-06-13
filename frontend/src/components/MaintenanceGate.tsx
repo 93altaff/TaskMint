@@ -67,11 +67,18 @@ export default function MaintenanceGate({
 
   if (!ready) return <>{children}</>;
 
+  // Build candidate route keys to look up in the maintenance map.
   const candidates: string[] = [];
   if (routeKey) candidates.push(routeKey);
-  if (pathname) candidates.push(pathname);
-  if (pathname?.includes("(tabs)")) {
-    candidates.push(pathname.replace("/(tabs)", ""));
+  if (pathname) {
+    candidates.push(pathname);
+    // expo-router's usePathname() returns clean paths (e.g. "/home") but admin
+    // *might* have saved a "/(tabs)/home" form from older versions — match both.
+    if (pathname.includes("(tabs)")) {
+      candidates.push(pathname.replace("/(tabs)", ""));
+    } else if (pathname.startsWith("/")) {
+      candidates.push(`/(tabs)${pathname}`);
+    }
   }
   const lastSeg = segments[segments.length - 1];
   if (lastSeg) candidates.push(`/${lastSeg}`);

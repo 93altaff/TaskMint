@@ -34,10 +34,10 @@ type Config = {
 
 const ROUTE_GROUPS: { label: string; items: { key: string; name: string }[] }[] = [
   { label: "Tabs", items: [
-    { key: "/(tabs)/home", name: "Home" },
-    { key: "/(tabs)/earn", name: "Earn" },
-    { key: "/(tabs)/wallet", name: "Wallet" },
-    { key: "/(tabs)/refer", name: "Refer" },
+    { key: "/home", name: "Home" },
+    { key: "/earn", name: "Earn" },
+    { key: "/wallet", name: "Wallet" },
+    { key: "/refer", name: "Refer" },
   ]},
   { label: "Tasks", items: [
     { key: "/spin", name: "Spin & Win" },
