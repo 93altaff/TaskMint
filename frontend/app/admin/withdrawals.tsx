@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal } from "react-native";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Check, X, Clock, Smartphone, Building2, History } from "lucide-react-native";
@@ -55,7 +58,7 @@ export default function AdminWithdrawals() {
       });
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
@@ -68,7 +71,7 @@ export default function AdminWithdrawals() {
   };
 
   const onRejectConfirm = (reason: string) => {
-    if (!reason.trim()) { Alert.alert("Reason required"); return; }
+    if (!reason.trim()) { toast.error("Reason required"); return; }
     const id = rejectFor;
     setRejectFor(null);
     if (id) submitUpdate(id, "rejected", reason.trim());

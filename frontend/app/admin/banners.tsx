@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, Alert,
-  KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Plus, Trash2, Pencil, Eye, EyeOff, Pin, PinOff, X } from "lucide-react-native";
@@ -39,7 +39,7 @@ export default function AdminBanners() {
 
   const save = async () => {
     if (!title || !image) {
-      Alert.alert("Required", "Title and image URL required");
+      toast.error("Required", { description: "Title and image URL required" });
       return;
     }
     try {
@@ -63,7 +63,7 @@ export default function AdminBanners() {
       resetForm();
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
@@ -88,13 +88,13 @@ export default function AdminBanners() {
       });
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
   const del = async (id: string) => {
     try { await api(`/admin/banners/${id}`, { method: "DELETE" }); load(); } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 

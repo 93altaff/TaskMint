@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, Switch,
-  KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Save, Smartphone, AlertTriangle } from "lucide-react-native";
@@ -44,11 +44,11 @@ export default function AdminVersion() {
 
   const save = async () => {
     if (!isVer(latest) || !isVer(minVer)) {
-      Alert.alert("Invalid", "Versions must look like 1.2.3");
+      toast.error("Invalid", { description: "Versions must look like 1.2.3" });
       return;
     }
     if (!storeUrl.trim().startsWith("http")) {
-      Alert.alert("Invalid", "Store URL must start with http(s)://");
+      toast.error("Invalid", { description: "Store URL must start with http(s)://" });
       return;
     }
     setBusy(true);
@@ -63,9 +63,9 @@ export default function AdminVersion() {
           release_notes: notes,
         },
       });
-      Alert.alert("Saved", "App version settings updated");
+      toast.success("Saved", { description: "App version settings updated" });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     } finally {
       setBusy(false);
     }

@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Gift, Sparkles } from "lucide-react-native";
@@ -7,10 +10,14 @@ import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
+import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 const BOX_COLORS = ["#F59E0B", "#EC4899", "#10B981", "#06B6D4"];
 
 export default function DailyChallenge() {
+  const maint = useMaintenance("/daily-challenge");
   const router = useRouter();
   const { refreshUser } = useAuth();
   const [claimed, setClaimed] = useState<boolean | null>(null);
@@ -46,7 +53,7 @@ export default function DailyChallenge() {
       if (r.jackpot) setPendingJackpot(r.reward);
       setShowInterstitial(true);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not open box");
+      toast.error("Error", { description: e?.message || "Could not open box" });
       setRevealedBox(null);
     } finally {
       setPicking(false);
@@ -58,10 +65,11 @@ export default function DailyChallenge() {
     if (pendingJackpot !== null) {
       const amt = pendingJackpot;
       setPendingJackpot(null);
-      Alert.alert("🎰 JACKPOT! 🎰", `You won ${amt} pts! Massive luck today.`);
+      toast.info("🎰 JACKPOT! 🎰", { description: `You won ${amt} pts! Massive luck today.` });
     }
   };
 
+  if (maint.enabled) return <MaintenanceCard title="Daily Challenge" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>
@@ -120,6 +128,8 @@ export default function DailyChallenge() {
         <Text style={styles.legendTxt}>• 9% chance — 300 pts</Text>
         <Text style={[styles.legendTxt, { color: theme.colors.primary, fontWeight: "800" }]}>• 1% jackpot — 1000 pts</Text>
       </View>
+
+      <NativeAd testID="dc-native-ad" />
 
       <InterstitialAdModal
         visible={showInterstitial}

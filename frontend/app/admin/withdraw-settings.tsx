@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
-  KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Save, Plus, Trash2 } from "lucide-react-native";
@@ -24,11 +24,11 @@ export default function AdminWithdrawSettings() {
   const addAmount = () => {
     const n = parseInt(newAmt, 10);
     if (isNaN(n) || n <= 0) {
-      Alert.alert("Invalid", "Enter a positive number (in points)");
+      toast.error("Invalid", { description: "Enter a positive number (in points)" });
       return;
     }
     if (amounts.includes(n)) {
-      Alert.alert("Exists", "This amount is already in the list");
+      toast.error("Exists", { description: "This amount is already in the list" });
       return;
     }
     setAmounts([...amounts, n].sort((a, b) => a - b));
@@ -43,9 +43,9 @@ export default function AdminWithdrawSettings() {
     setBusy(true);
     try {
       await api("/admin/withdraw-settings", { method: "PUT", body: { amounts } });
-      Alert.alert("Saved", "Withdraw amounts updated");
+      toast.success("Saved", { description: "Withdraw amounts updated" });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     } finally {
       setBusy(false);
     }

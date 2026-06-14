@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Image, TouchableOpacity,
-  Linking, Switch, Alert, Modal, TextInput, KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Linking, Switch, Modal, TextInput, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import {
@@ -31,7 +31,7 @@ export default function ProfileScreen() {
   const handleLongPress = () => {
     if (user?.is_admin) {
       // Instant demote — admin is logged out immediately without a confirm dialog.
-      adminLogout().catch((e: any) => Alert.alert("Error", e?.message || "Failed to logout"));
+      adminLogout().catch((e: any) => toast.error("Error", { description: e?.message || "Failed to logout" }));
     } else {
       setAdminModal(true);
     }
@@ -51,7 +51,7 @@ export default function ProfileScreen() {
 
   const open = (url?: string) => {
     if (!url) return;
-    Linking.openURL(url).catch(() => Alert.alert("Cannot open link"));
+    Linking.openURL(url).catch(() => toast.error("Cannot open link"));
   };
 
   const doAdminLogin = async () => {
@@ -61,10 +61,10 @@ export default function ProfileScreen() {
       await adminLogin(adminEmail.trim().toLowerCase(), adminPassword);
       setAdminModal(false);
       setAdminEmail(""); setAdminPassword("");
-      Alert.alert("Success", "You are now admin.");
+      toast.success("Success", { description: "You are now admin." });
       router.push("/admin");
     } catch (e: any) {
-      Alert.alert("Failed", e?.message || "Invalid credentials");
+      toast.error("Failed", { description: e?.message || "Invalid credentials" });
     } finally {
       setBusy(false);
     }
@@ -150,7 +150,7 @@ export default function ProfileScreen() {
               try {
                 const info = await api<{ play_store_url?: string }>("/version", { auth: false });
                 const url = info?.play_store_url || "https://play.google.com/store/apps/details?id=com.taskmint.app";
-                Linking.openURL(url).catch(() => Alert.alert("Cannot open Play Store"));
+                Linking.openURL(url).catch(() => toast.error("Cannot open Play Store"));
               } catch {
                 Linking.openURL("https://play.google.com/store/apps/details?id=com.taskmint.app").catch(() => {});
               }

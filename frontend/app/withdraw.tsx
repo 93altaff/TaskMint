@@ -14,6 +14,9 @@ import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
 import BalanceCard from "../src/components/BalanceCard";
 import RewardedAdModal from "../src/components/RewardedAdModal";
+import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 type Source = "games_task" | "campaign";
 
@@ -35,6 +38,7 @@ type WSettings = {
 };
 
 export default function WithdrawScreen() {
+  const maint = useMaintenance("/withdraw");
   const router = useRouter();
   const { user, refreshUser } = useAuth();
   const [source, setSource] = useState<Source | null>(null);
@@ -165,6 +169,7 @@ export default function WithdrawScreen() {
 
   const submitDisabled = !!formIncomplete;
 
+  if (maint.enabled) return <MaintenanceCard title="Withdraw" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
@@ -375,6 +380,9 @@ export default function WithdrawScreen() {
               </View>
             ))
           )}
+          <View style={{ paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md }}>
+            <NativeAd testID="withdraw-native-ad" />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 

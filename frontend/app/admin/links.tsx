@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
-  KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Save } from "lucide-react-native";
@@ -29,9 +29,9 @@ export default function AdminLinks() {
     setBusy(true);
     try {
       await api("/admin/links", { method: "PUT", body: data });
-      Alert.alert("Saved", "Links updated successfully");
+      toast.success("Saved", { description: "Links updated successfully" });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     } finally {
       setBusy(false);
     }

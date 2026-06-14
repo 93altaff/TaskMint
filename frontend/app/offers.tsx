@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Linking,
   RefreshControl,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Check, X, Clock } from "lucide-react-native";
@@ -59,9 +60,9 @@ export default function Offers() {
               const res = await api<{ link_url: string }>(`/tasks/campaign/${o.id}`, { method: "POST" });
               await load();
               if (res.link_url) Linking.openURL(res.link_url).catch(() => {});
-              Alert.alert("Marked Pending", "Complete the task and admin will credit your points.");
+              toast.info("Marked Pending", { description: "Complete the task and admin will credit your points." });
             } catch (e: any) {
-              Alert.alert("Error", e?.message || "Could not start task");
+              toast.error("Error", { description: e?.message || "Could not start task" });
             }
           },
         },

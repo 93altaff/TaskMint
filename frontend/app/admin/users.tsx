@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, Alert,
   Modal, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, Search, Plus, Minus, X, Trash2 } from "lucide-react-native";
@@ -122,11 +123,11 @@ export default function AdminUsers() {
     if (!selected) return;
     const n = parseInt(delta, 10);
     if (isNaN(n) || n <= 0) {
-      Alert.alert("Invalid", "Enter a positive number");
+      toast.error("Invalid", { description: "Enter a positive number" });
       return;
     }
     if (!reason.trim()) {
-      Alert.alert("Required", "Please add a reason");
+      toast.error("Required", { description: "Please add a reason" });
       return;
     }
     setBusy(true);
@@ -135,12 +136,12 @@ export default function AdminUsers() {
         `/admin/users/${selected.user_id}/adjust-points`,
         { method: "POST", body: { delta: sign * n, reason, source: adjustSource } },
       );
-      Alert.alert("Done", `New balance: ${res.new_points} pts`);
+      toast.success("Done", { description: `New balance: ${res.new_points} pts` });
       setSelected(null); setDelta(""); setReason("");
       setAdjustSource("games_task");
       await load(q);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     } finally {
       setBusy(false);
     }
@@ -151,11 +152,11 @@ export default function AdminUsers() {
     setBusy(true);
     try {
       await api(`/admin/users/${selected.user_id}`, { method: "DELETE" });
-      Alert.alert("Deleted", "User account permanently removed");
+      toast.success("Deleted", { description: "User account permanently removed" });
       setSelected(null);
       await load(q);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     } finally {
       setBusy(false);
     }
@@ -193,7 +194,7 @@ export default function AdminUsers() {
         setCheckins(await api<Txn[]>(`/admin/users/${selected.user_id}/checkins`));
       }
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to load");
+      toast.error("Error", { description: e?.message || "Failed to load" });
       setDrill(null);
     } finally {
       setDrillLoading(false);

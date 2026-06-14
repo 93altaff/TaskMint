@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
-  KeyboardAvoidingView, Platform, Switch,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Switch,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Plus, Trash2, Globe } from "lucide-react-native";
@@ -29,7 +29,7 @@ export default function AdminVisitSites() {
 
   const create = async () => {
     if (!title.trim() || !url.trim()) {
-      Alert.alert("Required", "Title and URL are required");
+      toast.error("Required", { description: "Title and URL are required" });
       return;
     }
     let normalized = url.trim();
@@ -42,7 +42,7 @@ export default function AdminVisitSites() {
       setTitle(""); setUrl(""); setActive(true);
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to create site");
+      toast.error("Error", { description: e?.message || "Failed to create site" });
     }
   };
 
@@ -54,7 +54,7 @@ export default function AdminVisitSites() {
       });
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to update");
+      toast.error("Error", { description: e?.message || "Failed to update" });
     }
   };
 

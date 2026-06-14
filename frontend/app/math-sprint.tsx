@@ -10,6 +10,8 @@ import NativeAd from "../src/components/NativeAd";
 import RewardedAdModal from "../src/components/RewardedAdModal";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import { useGameSession } from "../src/hooks/useGameSession";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 const ROUND_SECONDS = 20;
 const MAX_QUESTIONS = 20;
@@ -36,6 +38,7 @@ function makeProblem(): Problem {
 type Phase = "idle" | "playing" | "done";
 
 export default function MathSprint() {
+  const maint = useMaintenance("/math-sprint");
   const router = useRouter();
   const { refreshUser } = useAuth();
   const session = useGameSession(10, 5, "tm:game:math");
@@ -51,6 +54,9 @@ export default function MathSprint() {
   const totalRef = useRef(0);
   const startRef = useRef(0);
   const submittedRef = useRef(false);
+  // Wall-clock deadline + stable submit ref so answer taps never restart the timer.
+  const deadlineRef = useRef(0);
+  const submitRef = useRef<() => void>(() => {});
 
   // First-mount ad gate removed — rewarded ad shows only when user taps Start Sprint.
 
@@ -72,22 +78,25 @@ export default function MathSprint() {
     }
   }, [refreshUser, session]);
 
-  // Timer
+  useEffect(() => { submitRef.current = submit; }, [submit]);
+
+  // Deadline-based timer: re-renders triggered by answer taps no longer restart it.
   useEffect(() => {
     if (phase !== "playing") return;
+    deadlineRef.current = Date.now() + ROUND_SECONDS * 1000;
+    setTimeLeft(ROUND_SECONDS);
     const i = setInterval(() => {
-      setTimeLeft((t) => {
-        if (t <= 1) {
-          clearInterval(i);
-          setPhase("done");
-          submit();
-          return 0;
-        }
-        return t - 1;
-      });
-    }, 1000);
+      const remainingMs = deadlineRef.current - Date.now();
+      const remaining = Math.max(0, Math.ceil(remainingMs / 1000));
+      setTimeLeft(remaining);
+      if (remainingMs <= 0) {
+        clearInterval(i);
+        setPhase("done");
+        submitRef.current();
+      }
+    }, 200);
     return () => clearInterval(i);
-  }, [phase, submit]);
+  }, [phase]);
 
   const start = () => {
     if (!session.hasUnlocked || session.chancesLeft <= 0) {
@@ -123,6 +132,7 @@ export default function MathSprint() {
     setProblem(makeProblem());
   };
 
+  if (maint.enabled) return <MaintenanceCard title="Math Sprint" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

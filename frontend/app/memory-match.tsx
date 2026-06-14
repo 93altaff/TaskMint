@@ -9,6 +9,8 @@ import { useAuth } from "../src/context/AuthContext";
 import NativeAd from "../src/components/NativeAd";
 import RewardedAdModal from "../src/components/RewardedAdModal";
 import { useGameSession } from "../src/hooks/useGameSession";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 const EMOJIS = ["🍎", "🚀", "🎲", "🎯", "🎵", "⭐", "💎", "🔥"];
 
@@ -24,6 +26,7 @@ function shuffle<T>(arr: T[]): T[] {
 type Card = { id: number; emoji: string; matched: boolean; flipped: boolean };
 
 export default function MemoryMatch() {
+  const maint = useMaintenance("/memory-match");
   const router = useRouter();
   const { refreshUser } = useAuth();
   const session = useGameSession(5, 0, "tm:game:memory");
@@ -117,6 +120,7 @@ export default function MemoryMatch() {
     newGame();
   };
 
+  if (maint.enabled) return <MaintenanceCard title="Memory Match" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

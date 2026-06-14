@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image,
-  Alert, Linking, KeyboardAvoidingView, Platform, ActivityIndicator,
+  Linking, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, MessageCircle, ExternalLink, Check, X, Clock, PlayCircle } from "lucide-react-native";
@@ -46,7 +47,7 @@ export default function TaskDetail() {
       const data = await api<Campaign>(`/campaign/${id}`);
       setC(data);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not load task");
+      toast.error("Error", { description: e?.message || "Could not load task" });
     } finally {
       setLoading(false);
     }
@@ -60,7 +61,7 @@ export default function TaskDetail() {
       try {
         await api(`/tasks/campaign/${c.id}`, { method: "POST" });
       } catch {}
-      Linking.openURL(c.link_url).catch(() => Alert.alert("Cannot open link"));
+      Linking.openURL(c.link_url).catch(() => toast.error("Cannot open link"));
       setLinkOpened(true);
     }
   };
@@ -68,18 +69,15 @@ export default function TaskDetail() {
   const submit = async () => {
     if (!c) return;
     if (c.link_url && !linkOpened) {
-      Alert.alert(
-        "Start the task first",
-        'Please tap "Open Task Link" and complete the task before submitting proof.',
-      );
+      toast.info("Start the task first", { description: 'Please tap "Open Task Link" and complete the task before submitting proof.' });
       return;
     }
     if (c.form_field_1_label && !v1.trim()) {
-      Alert.alert("Required", `Please fill: ${c.form_field_1_label}`);
+      toast.error("Required", { description: `Please fill: ${c.form_field_1_label}` });
       return;
     }
     if (c.form_field_2_label && !v2.trim()) {
-      Alert.alert("Required", `Please fill: ${c.form_field_2_label}`);
+      toast.error("Required", { description: `Please fill: ${c.form_field_2_label}` });
       return;
     }
     setBusy(true);
@@ -90,9 +88,9 @@ export default function TaskDetail() {
       });
       await load();
       setV1(""); setV2("");
-      Alert.alert("Submitted", "Task marked Pending. Admin will review and credit your points.");
+      toast.info("Submitted", { description: "Task marked Pending. Admin will review and credit your points." });
     } catch (e: any) {
-      Alert.alert("Failed", e?.message || "Could not submit");
+      toast.error("Failed", { description: e?.message || "Could not submit" });
     } finally {
       setBusy(false);
     }

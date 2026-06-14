@@ -1,20 +1,25 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { ChevronLeft, PlayCircle, Check, Clock, Coins, Lock } from "lucide-react-native";
 import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
+import { storage } from "../src/utils/storage";
 import RewardedAdModal from "../src/components/RewardedAdModal";
 import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 const CYCLE_LIMIT = 5;
 const CYCLE_HOURS = 6;
 const NEXT_VIDEO_COOLDOWN_SECONDS = 60; // 60-second timer between watches
+const COOLDOWN_STORAGE_KEY = "tm:watch:nextAvailableAt"; // epoch ms
 
 const VIDEOS = [
   { id: 1, title: "Brand Spotlight",     channel: "TaskMint Partners", duration: "0:30", gradient: ["#EF4444", "#991B1B"] as const },
@@ -40,14 +45,32 @@ function fmtMMSS(seconds: number) {
 }
 
 export default function WatchEarn() {
+  const maint = useMaintenance("/watch-earn");
   const router = useRouter();
   const { user, refreshUser } = useAuth();
   const [adVisible, setAdVisible] = useState(false);
-  const [watched, setWatched] = useState<number[]>([]);
-  const [active, setActive] = useState<number | null>(null);
   const [crediting, setCrediting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [nextAvailableAt, setNextAvailableAt] = useState<number>(0); // epoch ms
+  const [hydrated, setHydrated] = useState(false);
+
+  // Hydrate the persisted cooldown deadline so it survives backgrounding / re-entry.
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+    (async () => {
+      const stored = await storage.getItem<number>(COOLDOWN_STORAGE_KEY, 0);
+      if (cancelled) return;
+      if (typeof stored === "number" && stored > Date.now()) {
+        setNextAvailableAt(stored);
+      } else {
+        if (stored && stored > 0) await storage.removeItem(COOLDOWN_STORAGE_KEY);
+        setNextAvailableAt(0);
+      }
+      setHydrated(true);
+      setNow(Date.now());
+    })();
+    return () => { cancelled = true; };
+  }, []));
 
   const cycleStartMs = useMemo(() => {
     const iso = user?.watch_cycle_started_at;
@@ -64,6 +87,11 @@ export default function WatchEarn() {
   const nextTimerActive = nextAvailableAt > now;
   const nextSecondsLeft = Math.max(0, Math.ceil((nextAvailableAt - now) / 1000));
 
+  // Current video = position based on how many watches have been used this cycle.
+  // We always show ONE card; after each successful watch it advances.
+  const videoIndex = Math.min(VIDEOS.length - 1, used % VIDEOS.length);
+  const currentVideo = VIDEOS[videoIndex];
+
   // Tick every second whenever any timer is showing.
   useEffect(() => {
     if (!cooldown && !nextTimerActive) return;
@@ -76,28 +104,32 @@ export default function WatchEarn() {
     if (now >= cycleEndMs) refreshUser().catch(() => {});
   }, [cooldown, cycleEndMs, now, refreshUser]);
 
-  const start = (id: number) => {
-    if (nextTimerActive || crediting) return; // block while inter-watch timer is running
-    setActive(id);
+  // When the inter-watch timer expires, clear the persisted deadline.
+  useEffect(() => {
+    if (nextAvailableAt > 0 && now >= nextAvailableAt) {
+      storage.removeItem(COOLDOWN_STORAGE_KEY).catch(() => {});
+    }
+  }, [nextAvailableAt, now]);
+
+  const start = () => {
+    if (nextTimerActive || crediting) return;
     setAdVisible(true);
   };
 
   const onReward = async () => {
     setAdVisible(false);
-    if (active === null) return;
     setCrediting(true);
     try {
       const r = await api<{ reward: number }>("/tasks/watch", { method: "POST" });
-      setWatched((w) => [...w, active!]);
-      setActive(null);
       await refreshUser();
-      // Start the 60s cooldown so user can't spam the next watch immediately.
-      setNextAvailableAt(Date.now() + NEXT_VIDEO_COOLDOWN_SECONDS * 1000);
-      Alert.alert("Reward earned", `+${r.reward} points credited!`);
+      // Start the persistent 60s cooldown.
+      const deadline = Date.now() + NEXT_VIDEO_COOLDOWN_SECONDS * 1000;
+      setNextAvailableAt(deadline);
+      await storage.setItem(COOLDOWN_STORAGE_KEY, deadline);
+      toast.success("Reward earned", { description: `+${r.reward} points credited!` });
     } catch (e: any) {
-      setActive(null);
       const msg = typeof e?.message === "string" ? e.message : "Try again";
-      Alert.alert("Couldn't credit reward", msg);
+      toast.error("Couldn't credit reward", { description: msg });
     } finally {
       setCrediting(false);
     }
@@ -134,7 +166,24 @@ export default function WatchEarn() {
     );
   }
 
-  // ====== Main feed ======
+  // ====== Main: single replaceable video card ======
+  if (maint.enabled) return <MaintenanceCard title="Watch & Earn" note={maint.note} />;
+
+  if (!hydrated) {
+    return (
+      <SafeAreaView style={styles.safe} edges={["top"]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} testID="back-btn">
+            <ChevronLeft size={26} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Watch & Earn</Text>
+          <View style={{ width: 26 }} />
+        </View>
+        <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 64 }} />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>
@@ -181,64 +230,49 @@ export default function WatchEarn() {
 
         <NativeAd testID="watch-native-ad" />
 
-        {VIDEOS.map((v) => {
-          const done = watched.includes(v.id);
-          const isActive = active === v.id;
-          const locked = !done && (nextTimerActive || crediting) && !isActive;
-          return (
-            <TouchableOpacity
-              key={v.id}
-              style={[
-                styles.videoCard,
-                done && { opacity: 0.55 },
-                locked && { opacity: 0.55 },
-              ]}
-              onPress={() => start(v.id)}
-              disabled={done || locked}
-              testID={`video-${v.id}`}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={v.gradient}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-                style={styles.videoThumb}
-              >
-                {done ? (
-                  <Check size={42} color="#fff" />
-                ) : locked ? (
-                  <Lock size={36} color="rgba(255,255,255,0.85)" />
-                ) : (
-                  <PlayCircle size={48} color="#fff" />
-                )}
-                <View style={styles.durationPill}>
-                  <Text style={styles.durationTxt}>{v.duration}</Text>
-                </View>
-              </LinearGradient>
-              <View style={styles.videoInfo}>
-                <Text style={styles.videoTitle} numberOfLines={1}>{v.title}</Text>
-                <Text style={styles.videoChannel} numberOfLines={1}>{v.channel}</Text>
-                <View style={styles.videoMetaRow}>
-                  <View style={styles.rewardPill}>
-                    <Coins size={11} color={theme.colors.success} />
-                    <Text style={styles.rewardPillTxt}>+50-100 pts</Text>
-                  </View>
-                  {done && (
-                    <View style={styles.donePill}>
-                      <Check size={10} color={theme.colors.success} />
-                      <Text style={styles.donePillTxt}>Done</Text>
-                    </View>
-                  )}
-                  {locked && (
-                    <View style={styles.lockedPill}>
-                      <Lock size={10} color={theme.colors.muted} />
-                      <Text style={styles.lockedPillTxt}>Wait {fmtMMSS(nextSecondsLeft)}</Text>
-                    </View>
-                  )}
-                </View>
+        {/* Single, always-fresh video card (replaces previous on each watch) */}
+        <TouchableOpacity
+          key={currentVideo.id}
+          style={[
+            styles.videoCard,
+            (nextTimerActive || crediting) && { opacity: 0.55 },
+          ]}
+          onPress={start}
+          disabled={nextTimerActive || crediting}
+          testID={`video-${currentVideo.id}`}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={currentVideo.gradient}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            style={styles.videoThumb}
+          >
+            {nextTimerActive ? (
+              <Lock size={36} color="rgba(255,255,255,0.85)" />
+            ) : (
+              <PlayCircle size={48} color="#fff" />
+            )}
+            <View style={styles.durationPill}>
+              <Text style={styles.durationTxt}>{currentVideo.duration}</Text>
+            </View>
+          </LinearGradient>
+          <View style={styles.videoInfo}>
+            <Text style={styles.videoTitle} numberOfLines={1}>{currentVideo.title}</Text>
+            <Text style={styles.videoChannel} numberOfLines={1}>{currentVideo.channel}</Text>
+            <View style={styles.videoMetaRow}>
+              <View style={styles.rewardPill}>
+                <Coins size={11} color={theme.colors.success} />
+                <Text style={styles.rewardPillTxt}>+50-100 pts</Text>
               </View>
-            </TouchableOpacity>
-          );
-        })}
+              {nextTimerActive && (
+                <View style={styles.lockedPill}>
+                  <Lock size={10} color={theme.colors.muted} />
+                  <Text style={styles.lockedPillTxt}>Wait {fmtMMSS(nextSecondsLeft)}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
       </ScrollView>
 
       <RewardedAdModal visible={adVisible} onReward={onReward} duration={3} />
@@ -300,7 +334,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: theme.colors.border,
   },
   videoThumb: {
-    height: 160, alignItems: "center", justifyContent: "center",
+    height: 200, alignItems: "center", justifyContent: "center",
     position: "relative",
   },
   durationPill: {
@@ -309,8 +343,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
   },
   durationTxt: { color: "#fff", fontSize: 11, fontWeight: "800", letterSpacing: 0.4 },
-  videoInfo: { padding: 12, gap: 4 },
-  videoTitle: { fontSize: 15, fontWeight: "800", color: theme.colors.text },
+  videoInfo: { padding: 14, gap: 4 },
+  videoTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text },
   videoChannel: { fontSize: 12, color: theme.colors.muted, fontWeight: "500" },
   videoMetaRow: { flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" },
   rewardPill: {
@@ -319,12 +353,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
   },
   rewardPillTxt: { color: theme.colors.success, fontSize: 11, fontWeight: "800" },
-  donePill: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "rgba(16,185,129,0.14)",
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999,
-  },
-  donePillTxt: { color: theme.colors.success, fontSize: 11, fontWeight: "800" },
   lockedPill: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: theme.colors.bg,

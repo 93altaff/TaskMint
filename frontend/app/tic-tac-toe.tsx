@@ -10,6 +10,8 @@ import NativeAd from "../src/components/NativeAd";
 import RewardedAdModal from "../src/components/RewardedAdModal";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import { useGameSession } from "../src/hooks/useGameSession";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 type Cell = "X" | "O" | null;
 type Difficulty = "easy" | "medium" | "hard";
@@ -60,6 +62,7 @@ function aiMove(b: Cell[], difficulty: Difficulty, ai: Cell): number {
 }
 
 export default function TicTacToe() {
+  const maint = useMaintenance("/tic-tac-toe");
   const router = useRouter();
   const { refreshUser } = useAuth();
   const session = useGameSession(10, 5, "tm:game:ttt");
@@ -131,6 +134,7 @@ export default function TicTacToe() {
     reset();
   };
 
+  if (maint.enabled) return <MaintenanceCard title="Tic-Tac-Toe" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

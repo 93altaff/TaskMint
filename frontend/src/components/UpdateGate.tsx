@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Linking, Image, Animated, Easing,
-  Platform, Modal, TextInput, KeyboardAvoidingView, Alert, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, Linking, Image, Animated, Easing, Platform, Modal, TextInput, KeyboardAvoidingView, ActivityIndicator,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Download, Shield, X } from "lucide-react-native";
@@ -43,20 +43,30 @@ export default function UpdateGate({
 
   // On web, the browser hijacks long-press on <Image> with its own image
   // context menu. Disable that and route the gesture to the TouchableOpacity.
+  // NOTE: do NOT include a `style` key here — spreading this onto a component
+  // with its own `style` prop would overwrite the button's background/text colors.
   const webNoContextMenu =
     Platform.OS === "web"
       ? ({
           // @ts-ignore — web-only DOM events through RN web's accessibility passthrough
           onContextMenu: (e: any) => e.preventDefault(),
           draggable: false,
-          // @ts-ignore
-          style: { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" },
         } as any)
       : {};
+  const webNoSelectStyle =
+    Platform.OS === "web"
+      ? ({
+          userSelect: "none",
+          WebkitUserSelect: "none",
+          WebkitTouchCallout: "none",
+          outlineStyle: "none",
+          outlineWidth: 0,
+        } as any)
+      : null;
 
   const submitAdmin = async () => {
     if (!email.trim() || !pwd.trim()) {
-      Alert.alert("Required", "Please enter both email and password.");
+      toast.error("Required", { description: "Please enter both email and password." });
       return;
     }
     setBusy(true);
@@ -68,7 +78,7 @@ export default function UpdateGate({
       // and disable force-update / fix maintenance from /admin/settings.
       router.push("/admin/settings");
     } catch (e: any) {
-      Alert.alert("Login failed", e?.message || "Invalid admin credentials.");
+      toast.error("Login failed", { description: e?.message || "Invalid admin credentials." });
     } finally {
       setBusy(false);
     }
@@ -77,21 +87,18 @@ export default function UpdateGate({
   return (
     <SafeAreaView style={styles.safe} testID="update-gate">
       <View style={styles.body}>
-        <TouchableOpacity
-          activeOpacity={0.85}
+        <View
+          style={styles.iconWrap}
           testID="update-logo-wrap"
-          {...webNoContextMenu}
         >
-          <Animated.View style={[styles.iconWrap, { transform: [{ scale }] }]}>
-            <Image
-              source={require("../../assets/images/icon.png")}
-              style={styles.icon}
-              resizeMode="contain"
-              // Block browser's image context menu so the touch reaches us.
-              {...(Platform.OS === "web" ? ({ draggable: false, pointerEvents: "none" } as any) : {})}
-            />
-          </Animated.View>
-        </TouchableOpacity>
+          <Image
+            source={require("../../assets/images/splash-icon.png")}
+            style={styles.icon}
+            resizeMode="contain"
+            // Block browser's image context menu so long-press on the button works on web.
+            {...(Platform.OS === "web" ? ({ draggable: false, pointerEvents: "none" } as any) : {})}
+          />
+        </View>
 
         <Text style={styles.title}>New version available</Text>
         <Text style={styles.body2}>
@@ -104,7 +111,7 @@ export default function UpdateGate({
           </View>
         )}
         <TouchableOpacity
-          style={styles.btn}
+          style={[styles.btn, webNoSelectStyle]}
           onPress={() => Linking.openURL(playStoreUrl)}
           onLongPress={() => setAdminModal(true)}
           delayLongPress={1500}

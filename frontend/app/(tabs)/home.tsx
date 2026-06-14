@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Image, TouchableOpacity,
-  RefreshControl, useWindowDimensions, Alert, Linking,
+  View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, RefreshControl, useWindowDimensions, Linking,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, useLocalSearchParams } from "expo-router";
 import {
   ChevronRight, Coins, Check, X, Clock,
 } from "lucide-react-native";
@@ -12,6 +12,8 @@ import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
 import HomeSkeleton from "../../src/components/HomeSkeleton";
+import MaintenanceCard from "../../src/components/MaintenanceCard";
+import { useMaintenance } from "../../src/hooks/useMaintenance";
 
 type Banner = { id: string; title: string; subtitle?: string; image_url: string; link_url?: string };
 type Campaign = {
@@ -24,8 +26,11 @@ type Completion = {
 };
 
 export default function HomeScreen() {
+  const maint = useMaintenance("/home");
   const { user, refreshUser } = useAuth();
   const router = useRouter();
+  const { welcome } = useLocalSearchParams<{ welcome?: string }>();
+  const welcomeShown = useRef(false);
   const { width } = useWindowDimensions();
   const [banners, setBanners] = useState<Banner[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -53,6 +58,20 @@ export default function HomeScreen() {
 
   useEffect(() => { load(); }, [load]);
   useFocusEffect(useCallback(() => { refreshUser(); load(); }, [load, refreshUser]));
+
+  // Professional welcome toast right after first login.
+  useEffect(() => {
+    if (welcome === "1" && !welcomeShown.current && user) {
+      welcomeShown.current = true;
+      const firstName = user.name?.split(" ")[0] || "there";
+      toast.success(`Welcome, ${firstName}!`, {
+        description: "Your TaskMint wallet is ready. Start earning rewards anytime.",
+        duration: 4000,
+      });
+      // Clear the param so refresh / focus doesn't re-trigger it.
+      router.setParams({ welcome: undefined } as any);
+    }
+  }, [welcome, user, router]);
 
   useEffect(() => {
     if (banners.length < 2) return;
@@ -86,7 +105,7 @@ export default function HomeScreen() {
       return;
     }
     // External URLs.
-    Linking.openURL(trimmed).catch(() => Alert.alert("Cannot open link"));
+    Linking.openURL(trimmed).catch(() => toast.error("Cannot open link"));
   };
 
   const startCampaign = (c: Campaign) => {
@@ -103,6 +122,7 @@ export default function HomeScreen() {
     return <HomeSkeleton />;
   }
 
+  if (maint.enabled) return <MaintenanceCard title="Home" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView

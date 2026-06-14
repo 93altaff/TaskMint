@@ -7,11 +7,13 @@ import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   Calendar, RefreshCw, Sparkles, ClipboardCheck, Brain, PlayCircle, Globe, Gift,
-  Layers, Grid3x3, Hash, Calculator, Award,
+  Layers, Grid3x3, Hash, Calculator, Award, Coins, Lightbulb,
 } from "lucide-react-native";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
+import MaintenanceCard from "../../src/components/MaintenanceCard";
+import { useMaintenance } from "../../src/hooks/useMaintenance";
 
 type ReferralInfo = {
   hero_title: string;
@@ -79,6 +81,24 @@ const GAME_HEROES: CardConfig[] = [
     gradient: ["#F43F5E", "#BE123C"],
     route: "/daily-challenge",
   },
+  {
+    key: "tap-rush",
+    title: "Tap-the-Coin Rush",
+    sub: "5/day • 30s arcade",
+    icon: <Coins size={22} color="#fff" />,
+    bgIcon: <Coins size={WATERMARK_SIZE} color={WATERMARK_COLOR} />,
+    gradient: ["#F59E0B", "#B45309"],
+    route: "/tap-rush",
+  },
+  {
+    key: "trivia-streak",
+    title: "Trivia Streak",
+    sub: "5/day • streak bonus",
+    icon: <Lightbulb size={22} color="#fff" />,
+    bgIcon: <Lightbulb size={WATERMARK_SIZE} color={WATERMARK_COLOR} />,
+    gradient: ["#14B8A6", "#0F766E"],
+    route: "/trivia-streak",
+  },
 ];
 
 const QUICK_TASKS: CardConfig[] = [
@@ -143,6 +163,7 @@ function GradientCard({
 }
 
 export default function EarnScreen() {
+  const maint = useMaintenance("/earn");
   const router = useRouter();
   const { user } = useAuth();
   const [refer, setRefer] = useState<ReferralInfo | null>(null);
@@ -154,6 +175,7 @@ export default function EarnScreen() {
 
   const open = (route: string) => router.push(route as any);
 
+  if (maint.enabled) return <MaintenanceCard title="Earn" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={{ padding: theme.spacing.lg, paddingBottom: 100 }}>

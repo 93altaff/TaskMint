@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, Alert,
-  KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Plus, Trash2, Pencil, Eye, EyeOff, Pin, PinOff, X, Copy } from "lucide-react-native";
@@ -59,7 +59,7 @@ export default function AdminCampaigns() {
 
   const save = async () => {
     if (!name || !note || !logo || !pts) {
-      Alert.alert("Required", "Name, note, logo and reward are required");
+      toast.error("Required", { description: "Name, note, logo and reward are required" });
       return;
     }
     try {
@@ -85,7 +85,7 @@ export default function AdminCampaigns() {
       resetForm();
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
@@ -125,13 +125,13 @@ export default function AdminCampaigns() {
       });
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
   const del = async (id: string) => {
     try { await api(`/admin/campaigns/${id}`, { method: "DELETE" }); load(); } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
@@ -240,7 +240,7 @@ export default function AdminCampaigns() {
                     const deepLink = `/task/${c.id}`;
                     try {
                       await Clipboard.setStringAsync(deepLink);
-                      Alert.alert("Copied", `Deep link copied:\n${deepLink}\n\nPaste it into a banner's "Link URL" to open this campaign on tap.`);
+                      toast.success("Copied", { description: `Deep link copied:\n${deepLink}\n\nPaste it into a banner's "Link URL" to open this campaign on tap.` });
                     } catch {}
                   }}
                   style={styles.idPill}

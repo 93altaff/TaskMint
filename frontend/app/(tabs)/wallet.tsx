@@ -9,7 +9,8 @@ import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
 import BalanceCard from "../../src/components/BalanceCard";
-import { SkeletonRow } from "../../src/components/Skeleton";
+import MaintenanceCard from "../../src/components/MaintenanceCard";
+import { useMaintenance } from "../../src/hooks/useMaintenance";
 
 type Txn = {
   id: string; type: "earn" | "withdraw"; source: string;
@@ -36,6 +37,7 @@ const FILTERS: { key: Filter; label: string; testID: string }[] = [
 ];
 
 export default function WalletScreen() {
+  const maint = useMaintenance("/wallet");
   const { user, refreshUser } = useAuth();
   const router = useRouter();
   const [txns, setTxns] = useState<Txn[]>([]);
@@ -68,6 +70,7 @@ export default function WalletScreen() {
     return cat === filter;
   });
 
+  if (maint.enabled) return <MaintenanceCard title="Wallet" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView
@@ -108,11 +111,8 @@ export default function WalletScreen() {
             })}
           </ScrollView>
           {loading ? (
-            <View style={{ gap: 4, marginTop: 8 }}>
-              <SkeletonRow />
-              <SkeletonRow />
-              <SkeletonRow />
-              <SkeletonRow />
+            <View style={{ paddingVertical: 40, alignItems: "center" }}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
             </View>
           ) : filtered.length === 0 ? (
             <View style={styles.emptyCard}>

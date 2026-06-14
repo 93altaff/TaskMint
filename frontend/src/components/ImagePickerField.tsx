@@ -1,5 +1,8 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert, Platform } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, Image, Platform,
+} from "react-native";
+import { toast } from "sonner-native";
 import * as ImagePicker from "expo-image-picker";
 import { Upload, RefreshCw } from "lucide-react-native";
 import { theme } from "../lib/theme";
@@ -14,7 +17,7 @@ export default function ImagePickerField({
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted && Platform.OS !== "web") {
-        Alert.alert("Permission required", "Allow photo access to upload images.");
+        toast.error("Permission required", { description: "Allow photo access to upload images." });
         return;
       }
       const res = await ImagePicker.launchImageLibraryAsync({
@@ -35,7 +38,7 @@ export default function ImagePickerField({
       });
       onChange(out.url);
     } catch (e: any) {
-      Alert.alert("Upload failed", e?.message || "Try again");
+      toast.error("Upload failed", { description: e?.message || "Try again" });
     } finally {
       setBusy(false);
     }

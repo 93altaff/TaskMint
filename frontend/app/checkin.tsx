@@ -1,13 +1,19 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Alert } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, Animated,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Calendar, Flame, Gift } from "lucide-react-native";
 import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 export default function CheckinScreen() {
+  const maint = useMaintenance("/checkin");
   const router = useRouter();
   const { user, refreshUser } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -29,12 +35,13 @@ export default function CheckinScreen() {
       setReward(res.reward);
       await refreshUser();
     } catch (e: any) {
-      Alert.alert("Cannot check in", e?.message || "Try again later");
+      toast.error("Cannot check in", { description: e?.message || "Try again later" });
     } finally {
       setBusy(false);
     }
   };
 
+  if (maint.enabled) return <MaintenanceCard title="Daily Check-in" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

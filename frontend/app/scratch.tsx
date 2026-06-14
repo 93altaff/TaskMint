@@ -1,5 +1,8 @@
 import React, { useRef, useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Alert, useWindowDimensions } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, Animated, useWindowDimensions,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Sparkles, Gift, Check } from "lucide-react-native";
@@ -8,8 +11,11 @@ import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 export default function ScratchScreen() {
+  const maint = useMaintenance("/scratch");
   const router = useRouter();
   const { user, refreshUser } = useAuth();
   const { width: winW } = useWindowDimensions();
@@ -49,7 +55,7 @@ export default function ScratchScreen() {
       });
     } catch (e: any) {
       setBusy(false);
-      Alert.alert("Scratch failed", e?.message || "Try again");
+      toast.error("Scratch failed", { description: e?.message || "Try again" });
     }
   };
 
@@ -89,6 +95,7 @@ export default function ScratchScreen() {
     );
   }
 
+  if (maint.enabled) return <MaintenanceCard title="Scratch & Earn" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

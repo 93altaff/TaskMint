@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
-  KeyboardAvoidingView, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Save, Users as UsersIcon, Plus, Trash2 } from "lucide-react-native";
@@ -61,15 +61,15 @@ export default function AdminReferralSettings() {
     const n7 = parseInt(s7, 10);
     const n15 = parseInt(s15, 10);
     if (isNaN(n7) || n7 < 0 || isNaN(n15) || n15 < 0) {
-      Alert.alert("Invalid", "Enter a non-negative number of points for both fields");
+      toast.error("Invalid", { description: "Enter a non-negative number of points for both fields" });
       return;
     }
     if (!heroTitle.trim() || !heroSub.trim() || !step3.trim()) {
-      Alert.alert("Invalid", "Hero title, subtitle and step-3 text cannot be empty");
+      toast.error("Invalid", { description: "Hero title, subtitle and step-3 text cannot be empty" });
       return;
     }
     if (!sharingText.trim()) {
-      Alert.alert("Invalid", "Sharing text cannot be empty. Use {code} as placeholder.");
+      toast.error("Invalid", { description: "Sharing text cannot be empty. Use {code} as placeholder." });
       return;
     }
     const cleanTiers: Tier[] = [];
@@ -78,11 +78,11 @@ export default function AdminReferralSettings() {
       const p = parseInt(t.points, 10);
       if (isNaN(d) && isNaN(p)) continue; // skip empty rows
       if (isNaN(d) || d <= 0) {
-        Alert.alert("Invalid tier", "Streak days must be a positive integer");
+        toast.error("Invalid tier", { description: "Streak days must be a positive integer" });
         return;
       }
       if (isNaN(p) || p < 0) {
-        Alert.alert("Invalid tier", "Tier points must be ≥ 0");
+        toast.error("Invalid tier", { description: "Tier points must be ≥ 0" });
         return;
       }
       cleanTiers.push({ streak_days: d, points: p });
@@ -103,14 +103,11 @@ export default function AdminReferralSettings() {
           tiers: cleanTiers,
         },
       });
-      Alert.alert(
-        "Saved",
-        cleanTiers.length > 0
+      toast.success("Saved", { description: cleanTiers.length > 0
           ? `Multi-tier mode active (${cleanTiers.length} tier${cleanTiers.length === 1 ? "" : "s"}). Legacy 7/15-day fields are ignored.`
-          : "Referral settings updated"
-      );
+          : "Referral settings updated" });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     } finally {
       setBusy(false);
     }

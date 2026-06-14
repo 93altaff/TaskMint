@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal } from "react-native";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Check, X, Clock, ListChecks, History } from "lucide-react-native";
@@ -58,7 +61,7 @@ export default function AdminCampaignCompletions() {
       await api(`/admin/campaign-completions/${id}`, { method: "PUT", body });
       load();
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed");
+      toast.error("Error", { description: e?.message || "Failed" });
     }
   };
 
@@ -68,7 +71,7 @@ export default function AdminCampaignCompletions() {
   };
 
   const onRejectConfirm = (reason: string) => {
-    if (!reason.trim()) { Alert.alert("Reason required"); return; }
+    if (!reason.trim()) { toast.error("Reason required"); return; }
     const id = rejectFor;
     setRejectFor(null);
     if (id) submitUpdate(id, "rejected", reason.trim());
@@ -78,7 +81,7 @@ export default function AdminCampaignCompletions() {
     if (!customFor) return;
     const n = parseInt(input.trim(), 10);
     if (Number.isNaN(n) || n < 0 || n > customFor.reward_points) {
-      Alert.alert("Invalid", `Enter 0 to ${customFor.reward_points}`);
+      toast.error("Invalid", { description: `Enter 0 to ${customFor.reward_points}` });
       return;
     }
     const id = customFor.id;

@@ -1,17 +1,16 @@
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Image,
-  ActivityIndicator, Alert,
+  View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Sparkles, Gift, Coins } from "lucide-react-native";
 import { theme } from "../src/lib/theme";
 import { useAuth } from "../src/context/AuthContext";
-import HomeSkeleton from "../src/components/HomeSkeleton";
 
 const LOGIN_LOGO =
-  "https://customer-assets.emergentagent.com/job_mint-tasks-sync/artifacts/ra7gbxi5_file_000000003c3471faa8561013c559c221.png";
+  "https://customer-assets.emergentagent.com/job_taskmint-rebuild-1/artifacts/fc2x2fug_IMG_20260614_122310.png";
 const LOGIN_HERO =
   "https://customer-assets.emergentagent.com/job_mint-tasks-sync/artifacts/pnm3c2nn_photo-1671749999622-4087a86868cc.jpeg";
 
@@ -23,11 +22,17 @@ export default function Login() {
   const onContinue = async () => {
     if (busy) return;
     setBusy(true);
+    const startedAt = Date.now();
     try {
       await deviceLogin();
-      router.replace("/(tabs)/home");
+      // Hold the spinner for at least 2 seconds so the transition feels intentional.
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 2000) {
+        await new Promise((r) => setTimeout(r, 2000 - elapsed));
+      }
+      router.replace("/(tabs)/home?welcome=1");
     } catch (e: any) {
-      Alert.alert("Could not sign in", e?.message || "Try again");
+      toast.error("Could not sign in", { description: e?.message || "Try again" });
     } finally {
       setBusy(false);
     }
@@ -35,9 +40,6 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-      {busy ? (
-        <HomeSkeleton />
-      ) : (
       <View style={styles.wrap} testID="login-screen">
         <View style={styles.brandWrap}>
           <View style={styles.logoCircle}>
@@ -82,7 +84,6 @@ export default function Login() {
           By continuing, you agree to our Terms & Privacy Policy
         </Text>
       </View>
-      )}
     </SafeAreaView>
   );
 }

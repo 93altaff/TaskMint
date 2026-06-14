@@ -1,7 +1,8 @@
 import React, { useEffect } from "react";
+import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "../src/context/AuthContext";
-import HomeSkeleton from "../src/components/HomeSkeleton";
+import { theme } from "../src/lib/theme";
 
 export default function Index() {
   const router = useRouter();
@@ -13,7 +14,6 @@ export default function Index() {
     else router.replace("/login");
   }, [loading, user, router]);
 
-  // Show the Home skeleton during auth hydration so the cold-start feels
-  // like the app is loading the Home tab, not a blank/spinner gate.
-  return <HomeSkeleton />;
+  // Plain background while auth hydrates. Redirect fires from the effect above.
+  return <View style={{ flex: 1, backgroundColor: theme.colors.bg }} />;
 }

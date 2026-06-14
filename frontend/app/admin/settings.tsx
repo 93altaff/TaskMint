@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert,
-  ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, Switch,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Save, Plus, Trash2 } from "lucide-react-native";
@@ -54,6 +54,8 @@ const ROUTE_GROUPS: { label: string; items: { key: string; name: string }[] }[] 
     { key: "/tic-tac-toe", name: "Tic-Tac-Toe" },
     { key: "/math-sprint", name: "Math Sprint" },
     { key: "/daily-challenge", name: "Daily Challenge" },
+    { key: "/tap-rush", name: "Tap-the-Coin Rush" },
+    { key: "/trivia-streak", name: "Trivia Streak" },
   ]},
   { label: "Wallet", items: [
     { key: "/withdraw", name: "Withdraw" },
@@ -69,7 +71,7 @@ export default function AdminSettings() {
   useEffect(() => {
     api<Config>("/admin/app-config")
       .then(setConfig)
-      .catch((e) => Alert.alert("Error", e?.message || "Failed to load config"));
+      .catch((e) => toast.error("Error", { description: e?.message || "Failed to load config" }));
   }, []);
 
   const set = (patch: Partial<Config>) => setConfig((c) => (c ? { ...c, ...patch } : c));
@@ -81,9 +83,9 @@ export default function AdminSettings() {
     setSaving(true);
     try {
       await api("/admin/app-config", { method: "PUT", body: config });
-      Alert.alert("Saved", "Config updated. New values take effect immediately.");
+      toast.success("Saved", { description: "Config updated. New values take effect immediately." });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Save failed");
+      toast.error("Error", { description: e?.message || "Save failed" });
     } finally {
       setSaving(false);
     }
@@ -229,7 +231,7 @@ export default function AdminSettings() {
 
           {/* Maintenance per route */}
           <Section title="Maintenance / Coming Soon mode">
-            <Text style={styles.muted}>Toggle ON to show a "Coming Soon" screen instead of that route. Add an optional note that users will see.</Text>
+            <Text style={styles.muted}>Toggle ON to replace that screen's body with a Coming Soon / Under Maintenance card. Add an optional note that users will see on the card.</Text>
             {ROUTE_GROUPS.map((grp) => (
               <View key={grp.label} style={{ marginTop: 12, gap: 8 }}>
                 <Text style={styles.subhead}>{grp.label}</Text>
@@ -248,7 +250,7 @@ export default function AdminSettings() {
                         <TextInput
                           value={m.note}
                           onChangeText={(v) => setNote(it.key, v)}
-                          placeholder="Optional note shown to users…"
+                          placeholder="Optional note shown on the card…"
                           placeholderTextColor={theme.colors.muted}
                           style={styles.noteInput}
                           testID={`maint-note-${it.key}`}

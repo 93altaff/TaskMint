@@ -10,7 +10,7 @@ import { AuthProvider } from "../src/context/AuthContext";
 import NoInternetGate from "../src/components/NoInternetGate";
 import UpdateGate from "../src/components/UpdateGate";
 import UpdateGateWrapper from "../src/components/UpdateGateWrapper";
-import MaintenanceGate from "../src/components/MaintenanceGate";
+import { Toaster } from "sonner-native";
 import { api } from "../src/lib/api";
 import { loadAdSettings } from "../src/lib/adConfig";
 // Metro picks initAdMob.web.ts on web (no-op) and initAdMob.ts on native (real init).
@@ -70,9 +70,10 @@ export default function RootLayout() {
     })();
   }, []);
 
-  if (false) {
-    return null; // Force-update is now overlaid via UpdateGateWrapper so Profile remains reachable.
-  }
+  const updateActive = !!versionGate && !skipped;
+  const playStoreUrl =
+    versionGate?.play_store_url ||
+    "https://play.google.com/store/apps/details?id=com.taskmint.app";
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -80,37 +81,55 @@ export default function RootLayout() {
         <AuthProvider>
           <NoInternetGate>
             <StatusBar style="dark" hidden />
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F7F9FC" } }}>
-              <Stack.Screen name="index" />
-              <Stack.Screen name="login" />
-              <Stack.Screen name="auth-callback" />
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="withdraw" options={{ presentation: "card" }} />
-              <Stack.Screen name="checkin" />
-              <Stack.Screen name="spin" />
-              <Stack.Screen name="scratch" />
-              <Stack.Screen name="quizzes" />
-              <Stack.Screen name="surveys" />
-              <Stack.Screen name="watch-earn" />
-              <Stack.Screen name="visit-earn" />
-              <Stack.Screen name="offers" />
-              <Stack.Screen name="task/[id]" />
-              <Stack.Screen name="refer" />
-              <Stack.Screen name="admin/index" />
-              <Stack.Screen name="admin/banners" />
-              <Stack.Screen name="admin/campaigns" />
-              <Stack.Screen name="admin/withdrawals" />
-              <Stack.Screen name="admin/links" />
-              <Stack.Screen name="admin/users" />
-              <Stack.Screen name="admin/campaign-completions" />
-              <Stack.Screen name="admin/withdraw-settings" />
-              <Stack.Screen name="admin/referral-settings" />
-              <Stack.Screen name="admin/version" />
-              <Stack.Screen name="admin/admob" />
-              <Stack.Screen name="admin/settings" />
-              <Stack.Screen name="higher-lower" />
-            </Stack>
+            <UpdateGateWrapper
+              active={updateActive}
+              latestVersion={versionGate?.latest_version || "1.0.0"}
+              playStoreUrl={playStoreUrl}
+              forceUpdate={!!versionGate?.force_update}
+              releaseNotes={versionGate?.release_notes}
+              onSkip={() => setSkipped(true)}
+            >
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F7F9FC" } }}>
+                <Stack.Screen name="index" />
+                <Stack.Screen name="login" />
+                <Stack.Screen name="auth-callback" />
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="withdraw" options={{ presentation: "card" }} />
+                <Stack.Screen name="checkin" />
+                <Stack.Screen name="spin" />
+                <Stack.Screen name="scratch" />
+                <Stack.Screen name="quizzes" />
+                <Stack.Screen name="surveys" />
+                <Stack.Screen name="watch-earn" />
+                <Stack.Screen name="visit-earn" />
+                <Stack.Screen name="offers" />
+                <Stack.Screen name="task/[id]" />
+                <Stack.Screen name="refer" />
+                <Stack.Screen name="admin/index" />
+                <Stack.Screen name="admin/banners" />
+                <Stack.Screen name="admin/campaigns" />
+                <Stack.Screen name="admin/withdrawals" />
+                <Stack.Screen name="admin/links" />
+                <Stack.Screen name="admin/users" />
+                <Stack.Screen name="admin/campaign-completions" />
+                <Stack.Screen name="admin/withdraw-settings" />
+                <Stack.Screen name="admin/referral-settings" />
+                <Stack.Screen name="admin/version" />
+                <Stack.Screen name="admin/admob" />
+                <Stack.Screen name="admin/settings" />
+                <Stack.Screen name="higher-lower" />
+                <Stack.Screen name="tap-rush" />
+                <Stack.Screen name="trivia-streak" />
+              </Stack>
+            </UpdateGateWrapper>
           </NoInternetGate>
+          <Toaster
+            position="top-center"
+            richColors
+            closeButton
+            theme="light"
+            toastOptions={{ style: { borderRadius: 14 } }}
+          />
         </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

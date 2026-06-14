@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Alert, useWindowDimensions } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, Animated, Easing, useWindowDimensions,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import Svg, { G, Path, Text as SvgText, Polygon } from "react-native-svg";
@@ -10,11 +13,14 @@ import { useAuth } from "../src/context/AuthContext";
 import RewardedAdModal from "../src/components/RewardedAdModal";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 const SEGMENTS = [30, 45, 60, 70, 80, 85, 95, 100];
 const COLORS = ["#4F46E5", "#7C6FF1", "#FFC107", "#FF8A65", "#10B981", "#06B6D4", "#FF6B6B", "#A855F7"];
 
 export default function SpinScreen() {
+  const maint = useMaintenance("/spin");
   const router = useRouter();
   const { user, refreshUser } = useAuth();
   const { width: winW } = useWindowDimensions();
@@ -68,7 +74,7 @@ export default function SpinScreen() {
     } catch (e: any) {
       setBusy(false);
       setPhase("ready");
-      Alert.alert("Spin failed", e?.message || "Try again");
+      toast.error("Spin failed", { description: e?.message || "Try again" });
     }
   };
 
@@ -112,6 +118,7 @@ export default function SpinScreen() {
     );
   }
 
+  if (maint.enabled) return <MaintenanceCard title="Spin & Win" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

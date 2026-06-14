@@ -1,5 +1,8 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from "react-native";
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { ChevronLeft, Brain, Check } from "lucide-react-native";
@@ -8,10 +11,13 @@ import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 type Question = { q: string; a: string[]; c: number };
 
 export default function Quizzes() {
+  const maint = useMaintenance("/quizzes");
   const router = useRouter();
   const { user, refreshUser } = useAuth();
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -36,7 +42,7 @@ export default function Quizzes() {
       setDone(false);
       setReward(0);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not load quiz");
+      toast.error("Error", { description: e?.message || "Could not load quiz" });
     } finally {
       setLoading(false);
     }
@@ -58,7 +64,7 @@ export default function Quizzes() {
 
   const finish = async (final: number[]) => {
     if (left <= 0) {
-      Alert.alert("Daily limit reached", "Come back tomorrow for more quizzes.");
+      toast.info("Daily limit reached", { description: "Come back tomorrow for more quizzes." });
       return;
     }
     const correct = final.reduce((acc, p, i) => acc + (p === questions[i].c ? 1 : 0), 0);
@@ -73,7 +79,7 @@ export default function Quizzes() {
       setShowInterstitial(true);
       setDone(true);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Try again");
+      toast.error("Error", { description: e?.message || "Try again" });
     }
   };
 
@@ -114,6 +120,7 @@ export default function Quizzes() {
     );
   }
 
+  if (maint.enabled) return <MaintenanceCard title="Quizzes" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>

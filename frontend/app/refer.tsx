@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Share, Alert,
-  TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, RefreshControl,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Share, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, RefreshControl
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Copy, Share2, Users, Gift, Check, UserPlus } from "lucide-react-native";
@@ -10,7 +10,8 @@ import * as Clipboard from "expo-clipboard";
 import { useAuth } from "../src/context/AuthContext";
 import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
-import Skeleton from "../src/components/Skeleton";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 type ReferralInfo = {
   referral_code: string;
@@ -34,6 +35,7 @@ type ReferralEntry = {
 };
 
 export default function ReferScreen() {
+  const maint = useMaintenance("/refer");
   const { user, refreshUser } = useAuth();
   const [info, setInfo] = useState<ReferralInfo | null>(null);
   const [history, setHistory] = useState<ReferralEntry[]>([]);
@@ -68,7 +70,7 @@ export default function ReferScreen() {
     if (!code) return;
     try {
       await Clipboard.setStringAsync(code);
-      Alert.alert("Copied", "Referral code copied to clipboard");
+      toast.success("Copied", { description: "Referral code copied to clipboard" })
     } catch {}
   };
 
@@ -80,7 +82,7 @@ export default function ReferScreen() {
   const onApply = async () => {
     const c = codeInput.trim().toUpperCase();
     if (!c) {
-      Alert.alert("Enter code", "Please enter a referral code");
+      toast.info("Enter code", { description: "Please enter a referral code" })
       return;
     }
     setApplying(true);
@@ -89,12 +91,12 @@ export default function ReferScreen() {
         "/referrals/apply",
         { method: "POST", body: { code: c } },
       );
-      Alert.alert("Applied!", `You're now referred by ${r.referrer_name} (${r.referrer_code}).`);
+      toast.success("Applied!", { description: `You're now referred by ${r.referrer_name} (${r.referrer_code}).` });
       setCodeInput("");
       await refreshUser();
       await load();
     } catch (e: any) {
-      Alert.alert("Could not apply", e?.message || "Failed");
+      toast.error("Could not apply", { description: e?.message || "Failed" })
     } finally {
       setApplying(false);
     }
@@ -105,12 +107,9 @@ export default function ReferScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={["top"]}>
-        <ScrollView contentContainerStyle={{ padding: theme.spacing.lg, gap: 14 }}>
-          <Skeleton width="100%" height={140} radius={20} />
-          <Skeleton width="100%" height={56} radius={12} />
-          <Skeleton width="100%" height={120} radius={16} />
-          <Skeleton width="100%" height={100} radius={16} />
-        </ScrollView>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       </SafeAreaView>
     );
   }
@@ -118,6 +117,7 @@ export default function ReferScreen() {
   const showApplyForm = info?.can_apply === true;
   const alreadyReferred = !!info?.referred_by;
 
+  if (maint.enabled) return <MaintenanceCard title="Refer & Earn" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>

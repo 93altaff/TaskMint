@@ -1,20 +1,32 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Linking, Platform, AppState, AppStateStatus } from "react-native";
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Linking, Platform, AppState, AppStateStatus, Modal,
+} from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
-import { ChevronLeft, Globe, Check, Gift, Clock } from "lucide-react-native";
+import { ChevronLeft, Globe, Check, Gift, Clock, AlertTriangle } from "lucide-react-native";
 import { theme } from "../src/lib/theme";
 import { api } from "../src/lib/api";
 import { useAuth } from "../src/context/AuthContext";
+import { storage } from "../src/utils/storage";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import NativeAd from "../src/components/NativeAd";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 type Site = { id: string; title: string; url: string; active: boolean };
-type Phase = "idle" | "waiting_return" | "countdown" | "claim_ready";
+type Phase = "idle" | "waiting_return" | "claim_ready";
 
-const COUNTDOWN_SECONDS = 3;
+// User must spend at least this long OUTSIDE the app (i.e. actually visiting the site)
+// before the reward becomes claimable.
+const REQUIRED_AWAY_MS = 10_000;
+const VISIT_STATE_KEY = "tm:visit:active"; // persisted { siteId, leftAt }
+
+type PersistedVisit = { siteId: string; siteTitle: string; siteUrl: string; leftAt: number };
 
 export default function VisitEarn() {
+  const maint = useMaintenance("/visit-earn");
   const router = useRouter();
   const { refreshUser } = useAuth();
   const [sites, setSites] = useState<Site[]>([]);
@@ -23,8 +35,9 @@ export default function VisitEarn() {
   const [adVisible, setAdVisible] = useState(false);
   const [active, setActive] = useState<Site | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const [tooFastPopup, setTooFastPopup] = useState<{ siteTitle: string; secondsAway: number } | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const leftAtRef = useRef<number>(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -36,7 +49,7 @@ export default function VisitEarn() {
       setSites(list);
       setDoneIds(done.site_ids || []);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Could not load sites");
+      toast.error("Error", { description: e?.message || "Could not load sites" });
     } finally {
       setLoading(false);
     }
@@ -44,41 +57,65 @@ export default function VisitEarn() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Detect when the user returns to the app after visiting a site.
+  // On screen mount, restore any in-flight visit so the timer survives an app kill.
+  useEffect(() => {
+    (async () => {
+      const persisted = await storage.getItem<PersistedVisit | null>(VISIT_STATE_KEY, null as any);
+      if (persisted && persisted.siteId && persisted.leftAt) {
+        leftAtRef.current = persisted.leftAt;
+        setActive({ id: persisted.siteId, title: persisted.siteTitle, url: persisted.siteUrl, active: true });
+        const awayMs = Date.now() - persisted.leftAt;
+        if (awayMs >= REQUIRED_AWAY_MS) setPhase("claim_ready");
+        else setPhase("waiting_return");
+      }
+    })();
+  }, []);
+
+  // Detect app foreground / background transitions to measure "away" time.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       const prev = appStateRef.current;
       appStateRef.current = next;
-      // App came back to foreground while waiting for the visit to complete.
-      if (prev.match(/inactive|background/) && next === "active" && phase === "waiting_return") {
-        setPhase("countdown");
-        setCountdown(COUNTDOWN_SECONDS);
+
+      // Leaving the app while a visit is pending — start measuring.
+      if (phase === "waiting_return" && prev === "active" && next.match(/inactive|background/)) {
+        leftAtRef.current = Date.now();
+        if (active) {
+          storage.setItem(VISIT_STATE_KEY, {
+            siteId: active.id, siteTitle: active.title, siteUrl: active.url, leftAt: leftAtRef.current,
+          } as any).catch(() => {});
+        }
+      }
+
+      // Returning to the app while a visit is pending — decide based on time spent away.
+      if (phase === "waiting_return" && prev.match(/inactive|background/) && next === "active") {
+        const leftAt = leftAtRef.current;
+        const awayMs = leftAt ? Date.now() - leftAt : 0;
+        if (!leftAt || awayMs < REQUIRED_AWAY_MS) {
+          // Came back too quickly — show the retry popup.
+          const siteTitle = active?.title || "the site";
+          setTooFastPopup({ siteTitle, secondsAway: Math.max(0, Math.floor(awayMs / 1000)) });
+          setActive(null);
+          setPhase("idle");
+          leftAtRef.current = 0;
+          storage.removeItem(VISIT_STATE_KEY).catch(() => {});
+        } else {
+          setPhase("claim_ready");
+        }
       }
     });
     return () => sub.remove();
-  }, [phase]);
+  }, [phase, active]);
 
-  // 3-second countdown after returning.
-  useEffect(() => {
-    if (phase !== "countdown") return;
-    if (countdown <= 0) {
-      setPhase("claim_ready");
-      return;
-    }
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [phase, countdown]);
-
-  // Web fallback (no AppState background event on web): start countdown
-  // shortly after opening the URL in a new tab.
   const start = async (s: Site) => {
-    if (phase !== "idle") return; // disable while another visit is in progress
+    if (phase !== "idle") return;
     if (doneIds.includes(s.id)) {
-      Alert.alert("Already completed", "You've already earned from this site today. Try another.");
+      toast.error("Already completed", { description: "You've already earned from this site today. Try another." });
       return;
     }
     setActive(s);
     setPhase("waiting_return");
+    leftAtRef.current = 0; // will be set when AppState goes background.
     try {
       const supported = await Linking.canOpenURL(s.url);
       if (supported) {
@@ -86,23 +123,25 @@ export default function VisitEarn() {
       } else if (Platform.OS === "web") {
         window.open(s.url, "_blank");
       } else {
-        Alert.alert("Invalid URL", `Cannot open ${s.url}`);
+        toast.error("Invalid URL", { description: `Cannot open ${s.url}` });
         setActive(null);
         setPhase("idle");
         return;
       }
     } catch {
-      Alert.alert("Error", `Could not open ${s.url}`);
+      toast.error("Error", { description: `Could not open ${s.url}` });
       setActive(null);
       setPhase("idle");
       return;
     }
-    // On web (or if AppState doesn't fire) start the countdown after a short delay.
+
+    // Web fallback: the browser doesn't fire AppState background. Mark `leftAt` now
+    // so the 10-second rule still applies based on opening time.
     if (Platform.OS === "web") {
-      setTimeout(() => {
-        setPhase("countdown");
-        setCountdown(COUNTDOWN_SECONDS);
-      }, 800);
+      leftAtRef.current = Date.now();
+      storage.setItem(VISIT_STATE_KEY, {
+        siteId: s.id, siteTitle: s.title, siteUrl: s.url, leftAt: leftAtRef.current,
+      } as any).catch(() => {});
     }
   };
 
@@ -124,17 +163,21 @@ export default function VisitEarn() {
       });
       setDoneIds((d) => [...d, active.id]);
       await refreshUser();
-      Alert.alert("Reward earned", `+${r.reward} points!`);
+      toast.success("Reward earned", { description: `+${r.reward} points!` });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Try again");
+      toast.error("Error", { description: e?.message || "Try again" });
     } finally {
       setActive(null);
       setPhase("idle");
-      setCountdown(COUNTDOWN_SECONDS);
+      leftAtRef.current = 0;
+      await storage.removeItem(VISIT_STATE_KEY).catch(() => {});
     }
   };
+
   const allCompleted = !loading && sites.length > 0 && doneIds.length >= sites.length;
   const otherTasksDisabled = phase !== "idle";
+
+  if (maint.enabled) return <MaintenanceCard title="Visit & Earn" note={maint.note} />;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -152,18 +195,18 @@ export default function VisitEarn() {
         ) : sites.length === 0 ? (
           <Text style={styles.empty}>No sites available right now. Check back soon.</Text>
         ) : allCompleted ? (
-          <>
-            <View style={styles.doneCard} testID="visit-all-done">
-              <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
-              <Text style={styles.doneTitle}>All Done!</Text>
-              <Text style={styles.doneBody}>Daily limit reached. Come back tomorrow.</Text>
-            </View>
-          </>
+          <View style={styles.doneCard} testID="visit-all-done">
+            <View style={styles.doneIcon}><Check size={32} color={theme.colors.success} /></View>
+            <Text style={styles.doneTitle}>All Done!</Text>
+            <Text style={styles.doneBody}>Daily limit reached. Come back tomorrow.</Text>
+          </View>
         ) : (
           <>
-            <Text style={styles.intro}>Visit partner sites to earn 30-100 points each. One reward per site per day.</Text>
+            <Text style={styles.intro}>
+              Visit partner sites and stay on them for at least <Text style={styles.bold}>10 seconds</Text> to earn 30-100 points each. One reward per site per day.
+            </Text>
 
-            {/* Active visit pending — countdown or claim banner */}
+            {/* Active visit pending — waiting / claim banner */}
             {active && phase !== "idle" && (
               <View style={styles.pendingCard} testID="visit-pending">
                 <View style={styles.pendingIcon}>
@@ -173,11 +216,8 @@ export default function VisitEarn() {
                 </View>
                 <Text style={styles.pendingTitle} numberOfLines={1}>{active.title}</Text>
                 {phase === "waiting_return" && (
-                  <Text style={styles.pendingSub}>Return to the app after visiting…</Text>
-                )}
-                {phase === "countdown" && (
                   <Text style={styles.pendingSub}>
-                    Verifying… <Text style={styles.countdownNum} testID="visit-countdown">{countdown}s</Text>
+                    Open the site and stay for at least 10 seconds, then return here to claim your reward.
                   </Text>
                 )}
                 {phase === "claim_ready" && (
@@ -220,7 +260,31 @@ export default function VisitEarn() {
           </>
         )}
       </ScrollView>
+
       <InterstitialAdModal visible={adVisible} onDone={onReward} duration={3} />
+
+      {/* Came-back-too-soon popup */}
+      <Modal visible={!!tooFastPopup} transparent animationType="fade">
+        <View style={styles.popupOverlay}>
+          <View style={styles.popupCard}>
+            <View style={styles.popupIcon}>
+              <AlertTriangle size={42} color="#F59E0B" />
+            </View>
+            <Text style={styles.popupTitle}>Visit incomplete</Text>
+            <Text style={styles.popupSub}>
+              You returned after only <Text style={styles.bold}>{tooFastPopup?.secondsAway ?? 0}s</Text>. To earn the reward, please explore <Text style={styles.bold}>{tooFastPopup?.siteTitle}</Text> for at least <Text style={styles.bold}>10 seconds</Text> and try again.
+            </Text>
+            <TouchableOpacity
+              style={styles.popupBtn}
+              onPress={() => setTooFastPopup(null)}
+              testID="visit-too-fast-close"
+              activeOpacity={0.85}
+            >
+              <Text style={styles.popupBtnText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -230,6 +294,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: theme.spacing.md },
   title: { fontSize: 18, fontWeight: "800", color: theme.colors.text },
   intro: { color: theme.colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 4 },
+  bold: { color: theme.colors.text, fontWeight: "800" },
   row: {
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: theme.colors.surface, padding: theme.spacing.md,
@@ -259,8 +324,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   pendingTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
-  pendingSub: { color: theme.colors.muted, fontSize: 13, textAlign: "center" },
-  countdownNum: { color: theme.colors.primary, fontWeight: "900", fontSize: 16 },
+  pendingSub: { color: theme.colors.muted, fontSize: 13, textAlign: "center", paddingHorizontal: 6 },
   claimBtn: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: theme.colors.success,
@@ -280,4 +344,25 @@ const styles = StyleSheet.create({
   },
   doneTitle: { fontSize: 26, fontWeight: "800", color: theme.colors.success },
   doneBody: { color: theme.colors.muted, textAlign: "center" },
+
+  popupOverlay: {
+    flex: 1, backgroundColor: theme.colors.overlay,
+    justifyContent: "center", alignItems: "center", padding: theme.spacing.lg,
+  },
+  popupCard: {
+    backgroundColor: theme.colors.surface, width: "100%", maxWidth: 340,
+    borderRadius: theme.radii.xl, padding: theme.spacing.lg, alignItems: "center", gap: 8,
+  },
+  popupIcon: {
+    width: 76, height: 76, borderRadius: 38,
+    backgroundColor: "rgba(245,158,11,0.12)",
+    alignItems: "center", justifyContent: "center", marginBottom: 4,
+  },
+  popupTitle: { fontSize: 18, fontWeight: "800", color: theme.colors.text, textAlign: "center" },
+  popupSub: { fontSize: 14, color: theme.colors.muted, textAlign: "center", lineHeight: 20 },
+  popupBtn: {
+    marginTop: 14, backgroundColor: theme.colors.primary,
+    paddingHorizontal: 36, paddingVertical: 14, borderRadius: theme.radii.pill,
+  },
+  popupBtnText: { color: "#fff", fontWeight: "800", fontSize: 15 },
 });

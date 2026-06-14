@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, Modal,
+  View, Text, StyleSheet, TouchableOpacity, Modal,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, ArrowUp, ArrowDown, Trophy, RotateCcw, Coins } from "lucide-react-native";
@@ -12,6 +13,8 @@ import NativeAd from "../src/components/NativeAd";
 import RewardedAdModal from "../src/components/RewardedAdModal";
 import InterstitialAdModal from "../src/components/InterstitialAdModal";
 import { useGameSession } from "../src/hooks/useGameSession";
+import MaintenanceCard from "../src/components/MaintenanceCard";
+import { useMaintenance } from "../src/hooks/useMaintenance";
 
 type Active = { date: string; current_card: number; streak: number };
 type State = { active: Active | null };
@@ -35,6 +38,7 @@ function streakReward(s: number) {
 }
 
 export default function HigherLower() {
+  const maint = useMaintenance("/higher-lower");
   const router = useRouter();
   const { refreshUser } = useAuth();
   const session = useGameSession(10, 5, "tm:game:hl");
@@ -60,7 +64,7 @@ export default function HigherLower() {
         setPotential(0);
       }
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to load");
+      toast.error("Error", { description: e?.message || "Failed to load" });
     }
   }, []);
 
@@ -87,7 +91,7 @@ export default function HigherLower() {
         active: { date: "", current_card: r.card, streak: 0 },
       });
     } catch (e: any) {
-      Alert.alert("Couldn't start", e?.message || "Try later");
+      toast.info("Couldn't start", { description: e?.message || "Try later" });
     } finally {
       setBusy(false);
     }
@@ -113,7 +117,7 @@ export default function HigherLower() {
       setPotential(r.potential_reward ?? streakReward(r.streak));
       if (r.round_over) finishRound(r.reward ?? 0, r.streak);
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Try again");
+      toast.error("Error", { description: e?.message || "Try again" });
     } finally {
       setBusy(false);
     }
@@ -129,7 +133,7 @@ export default function HigherLower() {
       setPotential(0);
       finishRound(r.reward, r.streak);
     } catch (e: any) {
-      Alert.alert("Couldn't cash out", e?.message || "Try later");
+      toast.info("Couldn't cash out", { description: e?.message || "Try later" });
     } finally {
       setBusy(false);
     }
@@ -146,6 +150,7 @@ export default function HigherLower() {
 
   const inRound = card !== null && state.active !== null;
 
+  if (maint.enabled) return <MaintenanceCard title="Higher or Lower" note={maint.note} />;
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <Header onBack={() => router.back()} title="Higher or Lower" />

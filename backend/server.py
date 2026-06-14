@@ -1109,6 +1109,37 @@ async def visit_completed_today(user: dict = Depends(get_current_user)):
 
 
 # ---------- Surveys & Quizzes pools ----------
+# Shared generic question bank — every survey reuses 5 random questions from here.
+# Each entry: { "q": str, "options": [str, ...] }. Answers are subjective so there's
+# no notion of "correct"; we just want the user to thoughtfully tap through.
+SURVEY_QUESTION_BANK = [
+    {"q": "How often do you engage with this?", "options": ["Daily", "Weekly", "Monthly", "Rarely", "Never"]},
+    {"q": "How satisfied are you overall?", "options": ["Very satisfied", "Satisfied", "Neutral", "Unsatisfied", "Very unsatisfied"]},
+    {"q": "How likely are you to recommend it to a friend?", "options": ["Definitely", "Probably", "Maybe", "Probably not", "Definitely not"]},
+    {"q": "Which factor matters most to you?", "options": ["Price", "Quality", "Convenience", "Brand", "Reviews"]},
+    {"q": "Would you pay more for a premium version?", "options": ["Yes", "Maybe", "No"]},
+    {"q": "What's your age group?", "options": ["Under 18", "18-24", "25-34", "35-44", "45+"]},
+    {"q": "Which device do you use most often for this?", "options": ["Smartphone", "Tablet", "Laptop", "Desktop", "Smart TV"]},
+    {"q": "How did you first discover it?", "options": ["Friend / family", "Social media", "Online ad", "App store", "Search engine"]},
+    {"q": "How would you rate the experience?", "options": ["Excellent", "Good", "Average", "Below average", "Poor"]},
+    {"q": "What time of day do you usually engage?", "options": ["Morning", "Afternoon", "Evening", "Night", "Anytime"]},
+    {"q": "How much do you spend on this monthly?", "options": ["Less than ₹500", "₹500-2000", "₹2000-5000", "₹5000-10000", "More than ₹10000"]},
+    {"q": "What city size do you live in?", "options": ["Metro", "Tier-1 city", "Tier-2 city", "Tier-3 city", "Town / village"]},
+    {"q": "How long have you been using it?", "options": ["Less than a month", "1-6 months", "6-12 months", "1-3 years", "More than 3 years"]},
+    {"q": "Do you compare options before buying?", "options": ["Always", "Most of the time", "Sometimes", "Rarely", "Never"]},
+    {"q": "Which channel do you trust most for reviews?", "options": ["YouTube", "Blogs / articles", "Friends & family", "Influencers", "App-store ratings"]},
+    {"q": "How easy was it to get started?", "options": ["Very easy", "Easy", "Neutral", "Difficult", "Very difficult"]},
+    {"q": "Pick the feature you value most:", "options": ["Speed", "Design", "Reliability", "Support", "Pricing"]},
+    {"q": "Which payment method do you prefer?", "options": ["UPI", "Debit card", "Credit card", "Cash on delivery", "Wallet"]},
+    {"q": "Do you receive offers about this from brands?", "options": ["Daily", "Weekly", "Monthly", "Rarely", "Never"]},
+    {"q": "What's your gender?", "options": ["Male", "Female", "Non-binary", "Prefer not to say"]},
+    {"q": "How important is sustainability to you here?", "options": ["Very important", "Important", "Somewhat", "Not really", "Not at all"]},
+    {"q": "How often do you switch providers / brands?", "options": ["Frequently", "Sometimes", "Rarely", "Once a year", "Never"]},
+    {"q": "Have you ever complained to customer support?", "options": ["Multiple times", "Once", "Considered it", "Never needed to"]},
+    {"q": "Would you recommend this in 2026?", "options": ["Definitely yes", "Probably yes", "Not sure", "Probably no", "Definitely no"]},
+    {"q": "Which language do you prefer for content here?", "options": ["English", "Hindi", "Tamil", "Bengali", "Other regional"]},
+]
+
 SURVEY_POOL = [
     {"title": "How often do you shop on Amazon/Flipkart?", "time": "2 min"},
     {"title": "Which OTT platform do you use most?", "time": "1 min"},
@@ -1140,6 +1171,197 @@ SURVEY_POOL = [
     {"title": "Festive shopping budget for Diwali", "time": "2 min"},
     {"title": "Apps you can't live without (pick top 3)", "time": "2 min"},
     {"title": "Sleep & screen-time habits", "time": "2 min"},
+    {"title": "How many hours of YouTube do you watch daily?", "time": "1 min"},
+    {"title": "Which laptop brand do you trust most?", "time": "2 min"},
+    {"title": "Do you prefer Android or iOS — and why?", "time": "2 min"},
+    {"title": "Best smartphone under ₹20,000 in your opinion?", "time": "2 min"},
+    {"title": "Frequency of online clothing returns", "time": "2 min"},
+    {"title": "Are you satisfied with your broadband provider?", "time": "2 min"},
+    {"title": "How often do you cook at home vs order in?", "time": "2 min"},
+    {"title": "Top features you want in a fitness band", "time": "2 min"},
+    {"title": "How do you discover new music?", "time": "1 min"},
+    {"title": "Crypto investment — yes, no, or thinking about it?", "time": "3 min"},
+    {"title": "Pets at home — dog, cat, both or none?", "time": "1 min"},
+    {"title": "Average monthly grocery bill", "time": "2 min"},
+    {"title": "Favourite social-media platform in 2026", "time": "1 min"},
+    {"title": "How often do you read books (paper or e-book)?", "time": "2 min"},
+    {"title": "Preferred mode of payment at retail stores", "time": "1 min"},
+    {"title": "How many subscriptions do you currently pay for?", "time": "2 min"},
+    {"title": "Most-used food brand at home", "time": "2 min"},
+    {"title": "Are you planning to upgrade your phone this year?", "time": "1 min"},
+    {"title": "Number of cards in your wallet (debit + credit)", "time": "1 min"},
+    {"title": "Do you use voice assistants daily?", "time": "1 min"},
+    {"title": "How often do you visit a coffee chain?", "time": "1 min"},
+    {"title": "Online dating apps — opinions and usage", "time": "3 min"},
+    {"title": "Books vs movies — which do you prefer?", "time": "1 min"},
+    {"title": "Best vacation destination in India?", "time": "2 min"},
+    {"title": "Have you tried meal-kit subscription services?", "time": "2 min"},
+    {"title": "Which festival do you spend the most on?", "time": "2 min"},
+    {"title": "Air purifier — necessary or luxury?", "time": "2 min"},
+    {"title": "Do you wear smart watches or analog?", "time": "1 min"},
+    {"title": "Favourite brand of headphones / earbuds", "time": "1 min"},
+    {"title": "How frequently do you upgrade your laptop?", "time": "2 min"},
+    {"title": "Best e-commerce sale event of the year", "time": "2 min"},
+    {"title": "Preferred mobile wallet (Paytm, PhonePe, GPay)?", "time": "1 min"},
+    {"title": "Are tasks/earning apps better than gaming apps?", "time": "1 min"},
+    {"title": "Average time spent on Instagram daily", "time": "1 min"},
+    {"title": "Tea brand you buy most often", "time": "1 min"},
+    {"title": "Do you use cashback apps regularly?", "time": "1 min"},
+    {"title": "Favourite cricket team in IPL", "time": "1 min"},
+    {"title": "Football vs cricket — which do you watch more?", "time": "1 min"},
+    {"title": "How comfortable are you with English keyboard typing?", "time": "1 min"},
+    {"title": "Have you ever invested in mutual funds via SIP?", "time": "2 min"},
+    {"title": "Are you saving for a house, car or travel?", "time": "2 min"},
+    {"title": "Preferred genre of OTT content (drama, comedy, thriller)", "time": "1 min"},
+    {"title": "What's your typical Saturday entertainment?", "time": "1 min"},
+    {"title": "Brand of two-wheeler you ride", "time": "1 min"},
+    {"title": "Are EV charging stations available near you?", "time": "2 min"},
+    {"title": "Have you used a drone or want to?", "time": "1 min"},
+    {"title": "Do you prefer night-owl or early-bird routine?", "time": "1 min"},
+    {"title": "Workout style — gym, home, outdoor?", "time": "2 min"},
+    {"title": "How important is brand loyalty to you?", "time": "2 min"},
+    {"title": "Have you bought a refurbished phone before?", "time": "2 min"},
+    {"title": "Travel insurance — yes or no?", "time": "2 min"},
+    {"title": "Have you taken a personal loan recently?", "time": "2 min"},
+    {"title": "Best chocolate brand in India?", "time": "1 min"},
+    {"title": "Have you tried any meal-replacement drinks?", "time": "1 min"},
+    {"title": "Daily intake of water (glasses)?", "time": "1 min"},
+    {"title": "Do you use any digital journaling app?", "time": "1 min"},
+    {"title": "What time do you typically wake up on weekdays?", "time": "1 min"},
+    {"title": "Have you tried fasting (intermittent or otherwise)?", "time": "2 min"},
+    {"title": "Do you follow finance influencers on Instagram?", "time": "1 min"},
+    {"title": "Cinema vs OTT — which do you prefer for new releases?", "time": "1 min"},
+    {"title": "Favourite type of cuisine to order online", "time": "1 min"},
+    {"title": "Have you ever returned an electronic gadget? Why?", "time": "2 min"},
+    {"title": "Do you trust reviews on Amazon/Flipkart?", "time": "2 min"},
+    {"title": "Which fast-food chain do you order from most?", "time": "1 min"},
+    {"title": "How often do you change your hairstyle?", "time": "1 min"},
+    {"title": "Have you used AI tools like ChatGPT or Gemini?", "time": "2 min"},
+    {"title": "Best app to learn a new skill — Udemy, Coursera, others?", "time": "2 min"},
+    {"title": "Are you planning to study abroad?", "time": "2 min"},
+    {"title": "Internet speed at home (Mbps)?", "time": "1 min"},
+    {"title": "Phones per household — average count", "time": "1 min"},
+    {"title": "Where do you save your passwords?", "time": "2 min"},
+    {"title": "Have you tried foldable phones?", "time": "1 min"},
+    {"title": "Best DSLR or mirrorless camera brand?", "time": "2 min"},
+    {"title": "Have you ever rented furniture or appliances?", "time": "2 min"},
+    {"title": "What's your favourite outdoor sport?", "time": "1 min"},
+    {"title": "How often do you visit malls vs online shop?", "time": "2 min"},
+    {"title": "Have you ever attended a live concert?", "time": "1 min"},
+    {"title": "Are you a member of any loyalty program?", "time": "2 min"},
+    {"title": "Most-used messaging app", "time": "1 min"},
+    {"title": "How many email accounts do you actively use?", "time": "1 min"},
+    {"title": "Are smartphones replacing your DSLR?", "time": "1 min"},
+    {"title": "Do you back up photos to the cloud?", "time": "1 min"},
+    {"title": "Have you tried podcasting or thought of starting one?", "time": "2 min"},
+    {"title": "Are you OK paying for premium news content?", "time": "2 min"},
+    {"title": "Have you used virtual reality (VR) before?", "time": "1 min"},
+    {"title": "Have you tried noise-cancelling headphones?", "time": "1 min"},
+    {"title": "Favourite Indian regional language for content?", "time": "1 min"},
+    {"title": "Do you prefer dubbed or subtitled foreign shows?", "time": "1 min"},
+    {"title": "How often do you eat street food?", "time": "1 min"},
+    {"title": "Have you tried a cloud kitchen?", "time": "1 min"},
+    {"title": "Do you order pet supplies online?", "time": "1 min"},
+    {"title": "Are you happy with your current health insurance?", "time": "2 min"},
+    {"title": "Have you visited a doctor via tele-consult?", "time": "2 min"},
+    {"title": "How often do you exercise per week?", "time": "1 min"},
+    {"title": "Have you tried yoga or meditation apps?", "time": "2 min"},
+    {"title": "Favourite season — summer, winter or monsoon?", "time": "1 min"},
+    {"title": "Do you prefer hatchback, sedan or SUV?", "time": "2 min"},
+    {"title": "Best Tata car you've heard about?", "time": "1 min"},
+    {"title": "Average monthly fuel spend", "time": "2 min"},
+    {"title": "How comfortable are you with public transport?", "time": "1 min"},
+    {"title": "Do you book Uber pool or solo rides?", "time": "1 min"},
+    {"title": "Have you ever rented a car for travel?", "time": "1 min"},
+    {"title": "Have you tried airline frequent-flyer programs?", "time": "2 min"},
+    {"title": "Best low-cost airline experience", "time": "2 min"},
+    {"title": "Train booking — IRCTC or third-party app?", "time": "1 min"},
+    {"title": "Have you tried Vande Bharat trains yet?", "time": "1 min"},
+    {"title": "Favourite hill station in India?", "time": "1 min"},
+    {"title": "Beach or mountain holiday?", "time": "1 min"},
+    {"title": "Have you used an Airbnb in India?", "time": "1 min"},
+    {"title": "Average monthly spend on entertainment", "time": "2 min"},
+    {"title": "Do you tip when ordering food online?", "time": "1 min"},
+    {"title": "Favourite ice-cream brand", "time": "1 min"},
+    {"title": "Vegetarian, non-veg, or eggetarian?", "time": "1 min"},
+    {"title": "Have you tried plant-based meat?", "time": "1 min"},
+    {"title": "Are you switching to millet-based diets?", "time": "1 min"},
+    {"title": "Have you tried baking at home?", "time": "1 min"},
+    {"title": "Have you used a kitchen subscription box?", "time": "2 min"},
+    {"title": "How often do you eat out in a month?", "time": "1 min"},
+    {"title": "Best bakery chain you visit", "time": "1 min"},
+    {"title": "How many shoes do you own?", "time": "1 min"},
+    {"title": "Have you tried online tailoring services?", "time": "1 min"},
+    {"title": "Best perfume brand you've tried?", "time": "1 min"},
+    {"title": "How often do you visit a salon?", "time": "1 min"},
+    {"title": "Have you tried at-home salon services?", "time": "2 min"},
+    {"title": "Have you used dating apps like Hinge or Bumble?", "time": "2 min"},
+    {"title": "Are you part of any online community / forum?", "time": "1 min"},
+    {"title": "Do you read newsletters on Substack?", "time": "1 min"},
+    {"title": "Have you ever bought NFTs?", "time": "1 min"},
+    {"title": "Do you trust AI for travel itinerary planning?", "time": "2 min"},
+    {"title": "Do you use a smart speaker (Alexa, Google Home)?", "time": "1 min"},
+    {"title": "Do you find online ads useful or annoying?", "time": "1 min"},
+    {"title": "How important is dark-mode in apps for you?", "time": "1 min"},
+    {"title": "Which OS update annoyed you most?", "time": "1 min"},
+    {"title": "Have you ever used a digital detox app?", "time": "1 min"},
+    {"title": "Do you keep multiple SIMs in your phone?", "time": "1 min"},
+    {"title": "Is 5G stable in your area?", "time": "1 min"},
+    {"title": "Are you on any wait-list for a launch product?", "time": "1 min"},
+    {"title": "Have you tried subscription boxes (snacks, beauty)?", "time": "2 min"},
+    {"title": "Do you participate in giveaways online?", "time": "1 min"},
+    {"title": "Have you tried lucky-draw or scratch apps?", "time": "1 min"},
+    {"title": "Do you watch product unboxing videos before buying?", "time": "1 min"},
+    {"title": "Have you tried buying gold online?", "time": "1 min"},
+    {"title": "Have you ever invested in P2P lending?", "time": "2 min"},
+    {"title": "Have you opened a Demat account?", "time": "2 min"},
+    {"title": "Do you trade in F&O or only equity?", "time": "2 min"},
+    {"title": "Stocks vs Mutual Funds — preference?", "time": "2 min"},
+    {"title": "How often do you check your CIBIL score?", "time": "1 min"},
+    {"title": "Do you maintain a personal finance tracker?", "time": "2 min"},
+    {"title": "Have you taken an EMI on appliances?", "time": "2 min"},
+    {"title": "Do you use any tax-filing app?", "time": "2 min"},
+    {"title": "Have you availed any home loan?", "time": "2 min"},
+    {"title": "Are you planning to buy/rent a property in 2026?", "time": "2 min"},
+    {"title": "Best real-estate platform you've used", "time": "2 min"},
+    {"title": "Have you ever rented furniture monthly?", "time": "1 min"},
+    {"title": "Have you tried co-working spaces?", "time": "1 min"},
+    {"title": "Are you a startup employee, corporate or freelance?", "time": "1 min"},
+    {"title": "Have you tried freelancing on Upwork/Fiverr?", "time": "2 min"},
+    {"title": "Do you side-hustle for extra income?", "time": "2 min"},
+    {"title": "Have you started a YouTube channel?", "time": "2 min"},
+    {"title": "Do you post Reels/Shorts regularly?", "time": "1 min"},
+    {"title": "Best AI image generator you've tried?", "time": "1 min"},
+    {"title": "Have you tried using AI for résumé building?", "time": "1 min"},
+    {"title": "Have you taken an online certification course?", "time": "2 min"},
+    {"title": "Which language do you want to learn next?", "time": "1 min"},
+    {"title": "Do you read self-help or fiction books more?", "time": "1 min"},
+    {"title": "Have you tried audiobooks (Audible / Spotify)?", "time": "1 min"},
+    {"title": "Best gym chain in your city?", "time": "1 min"},
+    {"title": "Have you tried sports like badminton, TT, tennis?", "time": "1 min"},
+    {"title": "Are you watching any K-drama right now?", "time": "1 min"},
+    {"title": "Have you tried board games online?", "time": "1 min"},
+    {"title": "Have you played BGMI / Free Fire?", "time": "1 min"},
+    {"title": "Favourite mobile game in 2026?", "time": "1 min"},
+    {"title": "Have you used cloud gaming services?", "time": "1 min"},
+    {"title": "Do you stream gaming on YouTube/Twitch?", "time": "1 min"},
+    {"title": "Best app for daily affirmations?", "time": "1 min"},
+    {"title": "Have you tried a wellness retreat?", "time": "2 min"},
+    {"title": "Do you support local farmer markets?", "time": "1 min"},
+    {"title": "Do you carry your own water bottle outside?", "time": "1 min"},
+    {"title": "Have you switched to eco-friendly products?", "time": "2 min"},
+    {"title": "Have you ever recycled e-waste?", "time": "1 min"},
+    {"title": "Are you in any WhatsApp deal-share group?", "time": "1 min"},
+    {"title": "Have you tried online tutoring as student or teacher?", "time": "2 min"},
+    {"title": "Best children's app/game for under-12s?", "time": "1 min"},
+    {"title": "Do you have a child's account on streaming apps?", "time": "1 min"},
+    {"title": "Have you tried smart-baby monitors?", "time": "1 min"},
+    {"title": "Have you used an online doctor for kids?", "time": "2 min"},
+    {"title": "Do you order school supplies online?", "time": "1 min"},
+    {"title": "Have you tried hobby classes online?", "time": "1 min"},
+    {"title": "Favourite DIY/craft activity?", "time": "1 min"},
+    {"title": "Have you joined a paid community (Discord, etc.)?", "time": "2 min"},
+    {"title": "Do you follow tech YouTubers regularly?", "time": "1 min"},
 ]
 
 QUIZ_POOL = [
@@ -1173,22 +1395,27 @@ QUIZ_POOL = [
 
 @api_router.get("/tasks/surveys/random")
 async def random_surveys(limit: int = 5, _: dict = Depends(get_current_user)):
-    """Return a fresh, randomly-shuffled subset of surveys for this open."""
+    """Return a fresh, randomly-shuffled subset of surveys for this open. Each
+    survey also carries 5 multi-choice questions drawn from a shared generic
+    bank so the UI can run a Quizzes-style sequential Q&A flow per survey."""
     n = max(1, min(limit, len(SURVEY_POOL)))
     sample = random.sample(SURVEY_POOL, n)
     meta = await get_app_meta()
     s_min = int(meta.get("survey_min", 30) or 30)
     s_max = int(meta.get("survey_max", 100) or 100)
     if s_max < s_min: s_max = s_min
-    return [
-        {
+    out = []
+    for s in sample:
+        qs = random.sample(SURVEY_QUESTION_BANK, 5)
+        out.append({
             "id": str(uuid.uuid4()),
             "title": s["title"],
             "time": s["time"],
             "reward": random.randint(s_min, s_max),
-        }
-        for s in sample
-    ]
+            # Each question: { q: str, options: [str, str, ...] }
+            "questions": qs,
+        })
+    return out
 
 
 @api_router.get("/tasks/quizzes/random")
@@ -2574,6 +2801,70 @@ async def daily_challenge_open(user: dict = Depends(get_current_user)):
     )
     await add_points_and_log(user["user_id"], reward, "daily_challenge", "Daily mystery box")
     return {"reward": reward, "jackpot": reward >= 1000}
+
+
+# -------- Tap-the-Coin Rush --------
+class TapPlayBody(BaseModel):
+    gold: int = 0
+    silver: int = 0
+    bombs_hit: int = 0
+    diamond: int = 0
+    duration_seconds: int = 30
+
+@api_router.get("/games/tap/state")
+async def tap_state(user: dict = Depends(get_current_user)):
+    return {"plays_used": 0, "plays_total": -1, "remaining": -1}
+
+@api_router.post("/games/tap/play")
+async def tap_play(payload: TapPlayBody, user: dict = Depends(get_current_user)):
+    diamond = max(0, int(payload.diamond or 0))
+    gold = max(0, int(payload.gold or 0))
+    silver = max(0, int(payload.silver or 0))
+    bombs = max(0, int(payload.bombs_hit or 0))
+    meta = await get_app_meta()
+    # Admin-configurable per-item payouts:
+    #   diamond +3 (rare), gold +2 (rare), silver +1, bomb penalty -5
+    per_diamond = int(meta.get("tap_per_diamond", 3) or 0)
+    per_gold = int(meta.get("tap_per_gold", 2) or 0)
+    per_silver = int(meta.get("tap_per_silver", 1) or 0)
+    bomb_penalty = int(meta.get("tap_bomb_penalty", 5) or 0)
+    raw = (diamond * per_diamond) + (gold * per_gold) + (silver * per_silver) - (bombs * bomb_penalty)
+    reward = max(0, raw)
+    if reward > 0:
+        await add_points_and_log(
+            user["user_id"], reward, "tap_rush",
+            f"Tap Rush diamond={diamond} gold={gold} silver={silver} bombs={bombs}",
+        )
+    return {"reward": reward, "remaining": -1}
+
+
+# -------- Trivia Streak --------
+class TriviaPlayBody(BaseModel):
+    correct: int = 0
+    total: int = 0
+    max_streak: int = 0
+
+@api_router.get("/games/trivia/state")
+async def trivia_state(user: dict = Depends(get_current_user)):
+    return {"plays_used": 0, "plays_total": -1, "remaining": -1}
+
+@api_router.post("/games/trivia/play")
+async def trivia_play(payload: TriviaPlayBody, user: dict = Depends(get_current_user)):
+    correct = max(0, int(payload.correct or 0))
+    max_streak = max(0, int(payload.max_streak or 0))
+    meta = await get_app_meta()
+    # Admin-configurable: points per correct + streak bonus per step above 1.
+    per_correct = int(meta.get("trivia_per_correct", 8) or 0)
+    streak_bonus = int(meta.get("trivia_streak_bonus", 5) or 0)
+    base = correct * per_correct
+    bonus = max(0, max_streak - 1) * streak_bonus
+    reward = base + bonus
+    if reward > 0:
+        await add_points_and_log(
+            user["user_id"], reward, "trivia",
+            f"Trivia Streak correct={correct} max_streak={max_streak}",
+        )
+    return {"reward": reward, "max_streak": max_streak, "remaining": -1}
 
 
 # -------- Admin: Game Settings --------

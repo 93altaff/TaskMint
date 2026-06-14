@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from "react-native";
+import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Save, RefreshCw } from "lucide-react-native";
@@ -37,7 +37,7 @@ export default function AdminAdMob() {
     try {
       setSettings(await api<AdMobSettings>("/admin/admob-settings"));
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to load");
+      toast.error("Error", { description: e?.message || "Failed to load" });
     } finally {
       setLoading(false);
     }
@@ -55,7 +55,7 @@ export default function AdminAdMob() {
     for (const f of FIELDS) {
       const v = (settings[f.key] || "").trim();
       if (!v.startsWith("ca-app-pub-")) {
-        Alert.alert("Invalid", `${f.label} must start with "ca-app-pub-"`);
+        toast.error("Invalid", { description: `${f.label} must start with "ca-app-pub-"` });
         return;
       }
     }
@@ -64,9 +64,9 @@ export default function AdminAdMob() {
       await api("/admin/admob-settings", { method: "PUT", body: settings });
       // Refresh the in-memory cache used by the ad components.
       await loadAdSettings();
-      Alert.alert("Saved", "AdMob unit IDs updated. Reopen the app for native ads to pick them up.");
+      toast.success("Saved", { description: "AdMob unit IDs updated. Reopen the app for native ads to pick them up." });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to save");
+      toast.error("Error", { description: e?.message || "Failed to save" });
     } finally {
       setSaving(false);
     }
