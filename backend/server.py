@@ -2127,7 +2127,16 @@ async def set_profile_mobile(payload: MobileNumberSet, user: dict = Depends(get_
 async def referrals_history(user: dict = Depends(get_current_user)):
     """Return the list of users that signed up using my code, with their streak + check-in info."""
     rows = await db.users.find(
-        {"referred_by": user["user_id"]}, {"_id": 0}
+        {"referred_by": user["user_id"]},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "name": 1,
+            "streak": 1,
+            "last_checkin": 1,
+            "created_at": 1,
+            "referral_rewards_paid": 1,
+        },
     ).sort("created_at", -1).to_list(500)
     out = []
     for r in rows:

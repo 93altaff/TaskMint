@@ -82,9 +82,6 @@ memory/test_credentials.md
 android-sdk/-e 
 
 # Environment and credential files
-.env
-.env.*
-*.env
 credentials.json
 *.pem
 *.key
