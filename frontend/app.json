@@ -61,7 +61,8 @@
           "userTrackingUsageDescription": "This identifier will be used to deliver personalised ads to you."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
