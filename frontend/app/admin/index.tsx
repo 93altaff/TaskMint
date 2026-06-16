@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import {
   ChevronLeft, Image as ImageIcon, Megaphone, Wallet, LinkIcon, ChevronRight, Shield,
   Users as UsersIcon, ListChecks, IndianRupee, Globe, Gift, Smartphone, RefreshCw,
-  Megaphone as AdsIcon, Sliders,
+  Megaphone as AdsIcon, Sliders, LayoutGrid,
 } from "lucide-react-native";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
@@ -109,6 +109,9 @@ export default function AdminHome() {
         <Tile icon={<LinkIcon size={20} color={theme.colors.primary} />} label="Channel Links"
           sub="Telegram, Contact, Support, Privacy, Terms" onPress={() => router.push("/admin/links")}
           testID="admin-links" />
+        <Tile icon={<LayoutGrid size={20} color={theme.colors.primary} />} label="Profile Buttons"
+          sub="Customise Quick Access buttons on the Profile tab"
+          onPress={() => router.push("/admin/profile-buttons")} testID="admin-profile-buttons" />
       </ScrollView>
     </SafeAreaView>
   );

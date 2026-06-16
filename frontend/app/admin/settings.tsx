@@ -26,6 +26,12 @@ type Config = {
   memory_completion: number;
   ttt_win: number;
   math_per_correct: number;
+  tap_per_diamond: number;
+  tap_per_gold: number;
+  tap_per_silver: number;
+  tap_bomb_penalty: number;
+  trivia_per_correct: number;
+  trivia_streak_bonus: number;
   checkin_base: number; checkin_step: number; checkin_cap: number;
   referral_mode: "streak" | "withdrawal" | "both";
   referral_withdrawal_tiers: Tier[];
@@ -179,7 +185,13 @@ export default function AdminSettings() {
             <Row label="Memory Match — completion"><NumInput value={config.memory_completion} onChangeText={setNum("memory_completion")} /></Row>
             <Row label="Tic-Tac-Toe — Hard win (Easy/Med scale to 30%/60%)"><NumInput value={config.ttt_win} onChangeText={setNum("ttt_win")} /></Row>
             <Row label="Math Sprint — points per correct answer"><NumInput value={config.math_per_correct} onChangeText={setNum("math_per_correct")} /></Row>
-            <Row label="Higher-Lower — (uses legacy game_settings tiers)"><Text style={styles.muted}>Edit via /admin/game-settings if present</Text></Row>
+            <Row label="Higher-Lower — points per correct"><NumInput value={config.higherlower_per_correct} onChangeText={setNum("higherlower_per_correct")} /></Row>
+            <Row label="Tap Rush — points per Diamond"><NumInput value={config.tap_per_diamond} onChangeText={setNum("tap_per_diamond")} /></Row>
+            <Row label="Tap Rush — points per Gold"><NumInput value={config.tap_per_gold} onChangeText={setNum("tap_per_gold")} /></Row>
+            <Row label="Tap Rush — points per Silver"><NumInput value={config.tap_per_silver} onChangeText={setNum("tap_per_silver")} /></Row>
+            <Row label="Tap Rush — Bomb penalty (deducted)"><NumInput value={config.tap_bomb_penalty} onChangeText={setNum("tap_bomb_penalty")} /></Row>
+            <Row label="Trivia Streak — points per correct"><NumInput value={config.trivia_per_correct} onChangeText={setNum("trivia_per_correct")} /></Row>
+            <Row label="Trivia Streak — bonus per streak step (above 1)"><NumInput value={config.trivia_streak_bonus} onChangeText={setNum("trivia_streak_bonus")} /></Row>
           </Section>
 
           {/* Check-in */}

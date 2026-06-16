@@ -57,12 +57,32 @@ export default function TaskDetail() {
 
   const openLink = async () => {
     if (!c) return;
+    const isCampaignKind = (c.category || "") === "Campaigns";
     if (c.link_url) {
       try {
         await api(`/tasks/campaign/${c.id}`, { method: "POST" });
       } catch {}
       Linking.openURL(c.link_url).catch(() => toast.error("Cannot open link"));
       setLinkOpened(true);
+    }
+    // Campaigns-category tasks: no proof needed — auto-create pending completion
+    // so admin can approve from the panel. Only fire once (skip if already
+    // pending/approved). Errors are silent to avoid breaking the link open.
+    if (isCampaignKind) {
+      const status = c.completion?.status;
+      const canAutoSubmit = !status || status === "rejected";
+      if (canAutoSubmit) {
+        try {
+          await api(`/tasks/campaign/${c.id}/submit`, {
+            method: "POST",
+            body: { form_field_1_value: "", form_field_2_value: "" },
+          });
+          await load();
+          toast.info("Task started", {
+            description: "Your participation has been recorded. Admin will review and credit your reward.",
+          });
+        } catch {}
+      }
     }
   };
 
@@ -107,8 +127,9 @@ export default function TaskDetail() {
   }
 
   const status = c.completion?.status;
-  const hasField1 = !!c.form_field_1_label;
-  const hasField2 = !!c.form_field_2_label;
+  const isCampaignKind = (c.category || "") === "Campaigns";
+  const hasField1 = !!c.form_field_1_label && !isCampaignKind;
+  const hasField2 = !!c.form_field_2_label && !isCampaignKind;
   const canSubmit = !status || status === "rejected";
   const ytId = getYouTubeId(c.tutorial_video_url || "");
 
@@ -222,7 +243,7 @@ export default function TaskDetail() {
             </View>
           )}
 
-          {canSubmit && (
+          {canSubmit && !isCampaignKind && (
             <TouchableOpacity
               style={[styles.submitBtn, submitDisabled && styles.submitDisabled]}
               onPress={submit} disabled={busy}
@@ -232,6 +253,19 @@ export default function TaskDetail() {
                 {busy ? "Submitting..." : "Submit"}
               </Text>
             </TouchableOpacity>
+          )}
+
+          {/* For Campaigns category — no proof submission. Inform user about flow. */}
+          {canSubmit && isCampaignKind && linkOpened && (
+            <View style={styles.campaignInfoCard}>
+              <Check size={18} color={theme.colors.success} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.campaignInfoTitle}>Participation recorded</Text>
+                <Text style={styles.campaignInfoBody}>
+                  No proof needed. Admin will review and credit your reward automatically.
+                </Text>
+              </View>
+            </View>
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -317,4 +351,16 @@ const styles = StyleSheet.create({
   },
   submitDisabled: { backgroundColor: "#E5E7EB" },
   submitText: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  campaignInfoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: theme.spacing.md,
+    borderRadius: theme.radii.lg,
+    backgroundColor: "rgba(16,185,129,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(16,185,129,0.25)",
+  },
+  campaignInfoTitle: { color: theme.colors.success, fontWeight: "800", fontSize: 13 },
+  campaignInfoBody: { color: theme.colors.text, fontSize: 12, marginTop: 2 },
 });

@@ -19,11 +19,14 @@ type Banner = { id: string; title: string; subtitle?: string; image_url: string;
 type Campaign = {
   id: string; name: string; note: string; logo_url: string;
   link_url?: string; reward_points: number; reward_inr: number;
+  category?: string;
 };
 type Completion = {
   id: string; campaign_id: string; status: "pending" | "approved" | "rejected";
   admin_note?: string;
 };
+
+type CampaignTab = "offerwall" | "campaign";
 
 export default function HomeScreen() {
   const maint = useMaintenance("/home");
@@ -37,6 +40,7 @@ export default function HomeScreen() {
   const [completions, setCompletions] = useState<Completion[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [firstLoaded, setFirstLoaded] = useState(false);
+  const [tab, setTab] = useState<CampaignTab>("offerwall");
   const scrollRef = useRef<ScrollView>(null);
   const [bannerIndex, setBannerIndex] = useState(0);
 
@@ -184,61 +188,104 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {/* Offerwall full list */}
+        {/* Offerwall + Campaigns with tabs */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>High Paying Campaigns</Text>
-          {[...campaigns].sort((a, b) => {
-            const sa = completionMap[a.id]?.status; const sb = completionMap[b.id]?.status;
-            // 0=pending, 1=incomplete (no completion), 2=approved, 3=rejected
-            const rank = (s?: string) => {
-              if (s === "pending") return 0;
-              if (s === "approved") return 2;
-              if (s === "rejected") return 3;
-              return 1;
-            };
-            const r = rank(sa) - rank(sb);
-            if (r !== 0) return r;
-            // Within same status group, show newest tasks at the top.
-            const ta = (a as any).created_at || "";
-            const tb = (b as any).created_at || "";
-            return tb.localeCompare(ta);
-          }).map((c) => {
-            const comp = completionMap[c.id];
-            const status = comp?.status; // pending/approved/rejected/undefined
-            const note = comp?.admin_note;
-            const disabled = status === "pending" || status === "approved";
-            const fade = !!status && status !== "rejected";
-            return (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.campaign, fade && styles.campaignFade]}
-                activeOpacity={disabled ? 1 : 0.85}
-                onPress={() => !disabled && startCampaign(c)}
-                disabled={disabled}
-                testID={`campaign-${c.id}`}
-              >
-                <Image source={{ uri: c.logo_url }} style={styles.campaignLogo} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.campaignName}>{c.name}</Text>
-                  <Text style={styles.campaignNote} numberOfLines={2}>{c.note}</Text>
-                  {status && <StatusChip status={status} />}
-                  {status === "rejected" && !!note && (
-                    <Text style={styles.reasonText} numberOfLines={3} testID={`campaign-${c.id}-reason`}>
-                      Reason: {note}
+
+          {/* Tabs */}
+          <View style={styles.tabsRow}>
+            {(["offerwall", "campaign"] as CampaignTab[]).map((t) => {
+              const active = tab === t;
+              const count =
+                t === "campaign"
+                  ? campaigns.filter((c) => (c.category || "") === "Campaigns").length
+                  : campaigns.filter((c) => (c.category || "") !== "Campaigns").length;
+              return (
+                <TouchableOpacity
+                  key={t}
+                  activeOpacity={0.85}
+                  onPress={() => setTab(t)}
+                  style={[styles.tabBtn, active && styles.tabBtnActive]}
+                  testID={`tab-${t}`}
+                >
+                  <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                    {t === "offerwall" ? "Offerwall" : "Campaigns"}
+                  </Text>
+                  <View style={[styles.tabCount, active && styles.tabCountActive]}>
+                    <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>
+                      {count}
                     </Text>
-                  )}
-                </View>
-                <View style={styles.campaignReward}>
-                  <Text style={styles.campaignInr}>₹{c.reward_inr}</Text>
-                  <Text style={styles.campaignPts}>{c.reward_points} pts</Text>
-                </View>
-                {!disabled && <ChevronRight size={18} color={theme.colors.muted} />}
-              </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {(() => {
+            const filtered = campaigns.filter((c) =>
+              tab === "campaign"
+                ? (c.category || "") === "Campaigns"
+                : (c.category || "") !== "Campaigns"
             );
-          })}
-          {campaigns.length === 0 && (
-            <Text style={styles.empty}>No campaigns available right now.</Text>
-          )}
+            const sorted = [...filtered].sort((a, b) => {
+              const sa = completionMap[a.id]?.status;
+              const sb = completionMap[b.id]?.status;
+              const rank = (s?: string) => {
+                if (s === "pending") return 0;
+                if (s === "approved") return 2;
+                if (s === "rejected") return 3;
+                return 1;
+              };
+              const r = rank(sa) - rank(sb);
+              if (r !== 0) return r;
+              const ta = (a as any).created_at || "";
+              const tb = (b as any).created_at || "";
+              return tb.localeCompare(ta);
+            });
+            if (sorted.length === 0) {
+              return (
+                <Text style={styles.empty}>
+                  {tab === "campaign"
+                    ? "No campaigns available right now."
+                    : "No offerwall tasks available right now."}
+                </Text>
+              );
+            }
+            return sorted.map((c) => {
+              const comp = completionMap[c.id];
+              const status = comp?.status;
+              const note = comp?.admin_note;
+              const disabled = status === "pending" || status === "approved";
+              const fade = !!status && status !== "rejected";
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[styles.campaign, fade && styles.campaignFade]}
+                  activeOpacity={disabled ? 1 : 0.85}
+                  onPress={() => !disabled && startCampaign(c)}
+                  disabled={disabled}
+                  testID={`campaign-${c.id}`}
+                >
+                  <Image source={{ uri: c.logo_url }} style={styles.campaignLogo} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.campaignName}>{c.name}</Text>
+                    <Text style={styles.campaignNote} numberOfLines={2}>{c.note}</Text>
+                    {status && <StatusChip status={status} />}
+                    {status === "rejected" && !!note && (
+                      <Text style={styles.reasonText} numberOfLines={3} testID={`campaign-${c.id}-reason`}>
+                        Reason: {note}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.campaignReward}>
+                    <Text style={styles.campaignInr}>₹{c.reward_inr}</Text>
+                    <Text style={styles.campaignPts}>{c.reward_points} pts</Text>
+                  </View>
+                  {!disabled && <ChevronRight size={18} color={theme.colors.muted} />}
+                </TouchableOpacity>
+              );
+            });
+          })()}
         </View>
 
         <View style={{ height: 80 }} />
@@ -376,4 +423,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
   },
   empty: { color: theme.colors.muted, textAlign: "center", paddingVertical: 24 },
+  tabsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    padding: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  tabBtnActive: { backgroundColor: theme.colors.primary },
+  tabText: { color: theme.colors.muted, fontWeight: "800", fontSize: 13 },
+  tabTextActive: { color: "#fff" },
+  tabCount: {
+    backgroundColor: theme.colors.bg,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    minWidth: 22,
+    alignItems: "center",
+  },
+  tabCountActive: { backgroundColor: "rgba(255,255,255,0.22)" },
+  tabCountText: { color: theme.colors.muted, fontWeight: "800", fontSize: 11 },
+  tabCountTextActive: { color: "#fff" },
 });

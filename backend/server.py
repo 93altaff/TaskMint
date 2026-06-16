@@ -203,6 +203,29 @@ class AppLinks(BaseModel):
     privacy_policy: str = ""
     terms: str = ""
 
+
+class ProfileButton(BaseModel):
+    """A single configurable button shown in the Profile → Quick Access list.
+
+    `icon` is a free-form Lucide icon name (e.g. "Send", "Phone", "Globe").
+    The frontend dynamically renders the matching Lucide icon, falling back
+    to a generic `Link` icon if the name is unknown.
+    `url` can be an external URL, an internal app route (e.g. "/refer"),
+    or a phone/email URI (e.g. "tel:+91...", "mailto:hello@...").
+    """
+    id: str = Field(default_factory=lambda: f"pb_{uuid.uuid4().hex[:8]}")
+    title: str
+    icon: str = "Link"
+    url: str = ""
+    color: str = "#4F46E5"  # icon tint colour
+    sort_order: int = 0
+    hidden: bool = False
+
+
+class ProfileButtonsConfig(BaseModel):
+    buttons: List[ProfileButton] = []
+
+
 class AppMetaSettings(BaseModel):
     """Single admin-controlled config doc that powers withdrawal mins, exchange
     ratio, per-task reward ranges, referral mode, and per-screen maintenance.
@@ -225,6 +248,14 @@ class AppMetaSettings(BaseModel):
     memory_completion: int = 200
     ttt_win: int = 100
     math_per_correct: int = 5
+    # Tap-the-Coin Rush per-item payouts
+    tap_per_diamond: int = 3
+    tap_per_gold: int = 2
+    tap_per_silver: int = 1
+    tap_bomb_penalty: int = 5
+    # Trivia Streak
+    trivia_per_correct: int = 8
+    trivia_streak_bonus: int = 5
     checkin_base: int = 20                       # day 1 reward
     checkin_step: int = 10                       # +N per day after day 1
     checkin_cap: int = 100                       # cap
@@ -257,9 +288,9 @@ class ReferralSettings(BaseModel):
     sharing_text: str = "🎉 Join me on TaskMint and earn real cash! Use my code {code} when signing up."
 
 class AppVersionInfo(BaseModel):
-    latest_version: str = "1.0.3"
-    min_supported_version: str = "1.0.3"
-    play_store_url: str = "https://play.google.com/store/apps/details?id=com.taskmint.app"
+    latest_version: str = "1.0.4"
+    min_supported_version: str = "1.0.4"
+    play_store_url: str = "https://play.google.com/store/apps/details?id=com.labs93world.taskmint"
     force_update: bool = False
     release_notes: str = ""
 
@@ -778,6 +809,63 @@ async def get_campaigns():
 async def get_links():
     doc = await db.app_links.find_one({"_id": "singleton"}, {"_id": 0})
     return doc or AppLinks().dict()
+
+
+# ---------- Profile Quick Access buttons (admin-configurable) ----------
+async def _resolve_default_urls() -> Dict[str, str]:
+    """Pull URLs from app_links so the default Quick Access buttons stay
+    functional on a fresh install where the admin hasn't customised buttons."""
+    doc = await db.app_links.find_one({"_id": "singleton"}, {"_id": 0})
+    links = doc or {}
+    return {
+        "Telegram Channel": links.get("telegram", ""),
+        "Contact on Telegram": links.get("telegram_contact", ""),
+        "Contact for Business": links.get("business_contact", ""),
+        "Privacy Policy": links.get("privacy_policy", ""),
+        "Terms & Conditions": links.get("terms", ""),
+    }
+
+
+def _default_profile_buttons() -> List[Dict[str, Any]]:
+    """Sensible defaults shown on a fresh install (mirror the previous
+    hardcoded list in profile.tsx). Admin can fully replace these."""
+    return [
+        {"id": "pb_default_1", "title": "Telegram Channel", "icon": "Send",
+         "url": "", "color": "#0088cc", "sort_order": 1, "hidden": False},
+        {"id": "pb_default_2", "title": "Contact on Telegram", "icon": "MessageCircle",
+         "url": "", "color": "#0088cc", "sort_order": 2, "hidden": False},
+        {"id": "pb_default_3", "title": "Contact for Business", "icon": "Briefcase",
+         "url": "", "color": "#4F46E5", "sort_order": 3, "hidden": False},
+        {"id": "pb_default_4", "title": "Privacy Policy", "icon": "ShieldCheck",
+         "url": "", "color": "#4F46E5", "sort_order": 4, "hidden": False},
+        {"id": "pb_default_5", "title": "Terms & Conditions", "icon": "FileText",
+         "url": "", "color": "#4F46E5", "sort_order": 5, "hidden": False},
+    ]
+
+
+@api_router.get("/profile-buttons")
+async def get_profile_buttons():
+    """Public read — used by the Profile tab. Returns ordered, non-hidden buttons.
+    If admin hasn't configured any yet, returns sensible defaults so the UI
+    never looks empty.
+    """
+    doc = await db.profile_buttons.find_one({"_id": "singleton"}, {"_id": 0})
+    items: List[Dict[str, Any]] = (doc or {}).get("buttons", []) or []
+    used_defaults = False
+    if not items:
+        items = _default_profile_buttons()
+        used_defaults = True
+    # When using defaults, hydrate URLs from app_links so links still work
+    # for admins who haven't customised yet.
+    if used_defaults:
+        url_map = await _resolve_default_urls()
+        for b in items:
+            if not b.get("url"):
+                b["url"] = url_map.get(b.get("title", ""), "")
+    items = [b for b in items if not b.get("hidden")]
+    items.sort(key=lambda b: int(b.get("sort_order", 0) or 0))
+    return {"buttons": items}
+
 
 @api_router.get("/withdraw-settings")
 async def get_withdraw_settings():
@@ -1791,6 +1879,38 @@ async def admin_get_links(_: dict = Depends(require_admin)):
 async def admin_update_links(payload: AppLinks, _: dict = Depends(require_admin)):
     await db.app_links.update_one({"_id": "singleton"}, {"$set": payload.dict()}, upsert=True)
     return payload.dict()
+
+
+# ---------- Admin: Profile Quick Access buttons ----------
+@api_router.get("/admin/profile-buttons")
+async def admin_get_profile_buttons(_: dict = Depends(require_admin)):
+    doc = await db.profile_buttons.find_one({"_id": "singleton"}, {"_id": 0})
+    items = (doc or {}).get("buttons", []) or []
+    if not items:
+        items = _default_profile_buttons()
+    items.sort(key=lambda b: int(b.get("sort_order", 0) or 0))
+    return {"buttons": items}
+
+
+@api_router.put("/admin/profile-buttons")
+async def admin_update_profile_buttons(
+    payload: ProfileButtonsConfig, _: dict = Depends(require_admin)
+):
+    # Normalise: assign ids to any new buttons missing one, then save.
+    items: List[Dict[str, Any]] = []
+    for b in payload.buttons:
+        d = b.dict()
+        if not d.get("id"):
+            d["id"] = f"pb_{uuid.uuid4().hex[:8]}"
+        items.append(d)
+    items.sort(key=lambda b: int(b.get("sort_order", 0) or 0))
+    await db.profile_buttons.update_one(
+        {"_id": "singleton"},
+        {"$set": {"buttons": items}},
+        upsert=True,
+    )
+    return {"buttons": items}
+
 
 @api_router.get("/admin/stats")
 async def admin_stats(_: dict = Depends(require_admin)):

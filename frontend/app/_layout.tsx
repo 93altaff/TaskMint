@@ -73,7 +73,7 @@ export default function RootLayout() {
   const updateActive = !!versionGate && !skipped;
   const playStoreUrl =
     versionGate?.play_store_url ||
-    "https://play.google.com/store/apps/details?id=com.taskmint.app";
+    "https://play.google.com/store/apps/details?id=com.labs93world.taskmint";
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -117,6 +117,7 @@ export default function RootLayout() {
                 <Stack.Screen name="admin/version" />
                 <Stack.Screen name="admin/admob" />
                 <Stack.Screen name="admin/settings" />
+                <Stack.Screen name="admin/profile-buttons" />
                 <Stack.Screen name="higher-lower" />
                 <Stack.Screen name="tap-rush" />
                 <Stack.Screen name="trivia-streak" />

@@ -6,22 +6,28 @@ import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import {
-  Bell, Send, MessageCircle, Briefcase,
-  ShieldCheck, FileText, ChevronRight, Coins, ListTodo, Flame, Shield, X, Phone,
+  Bell, ChevronRight, Coins, ListTodo, Flame, Shield, X, Phone,
 } from "lucide-react-native";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
+import { renderProfileIcon } from "../../src/lib/profileIcons";
 
 type Links = {
   telegram: string; telegram_contact: string; business_contact: string;
   customer_support: string; privacy_policy: string; terms: string;
 };
 
+type ProfileButton = {
+  id: string; title: string; icon: string; url: string;
+  color?: string; sort_order?: number; hidden?: boolean;
+};
+
 export default function ProfileScreen() {
   const { user, refreshUser, adminLogin, adminLogout } = useAuth();
   const router = useRouter();
   const [links, setLinks] = useState<Links | null>(null);
+  const [buttons, setButtons] = useState<ProfileButton[]>([]);
   const [reminder, setReminder] = useState(true);
   const [adminModal, setAdminModal] = useState(false);
   const [adminEmail, setAdminEmail] = useState("");
@@ -39,8 +45,12 @@ export default function ProfileScreen() {
 
   const loadLinks = useCallback(async () => {
     try {
-      const l = await api<Links>("/links", { auth: false });
+      const [l, pb] = await Promise.all([
+        api<Links>("/links", { auth: false }),
+        api<{ buttons: ProfileButton[] }>("/profile-buttons", { auth: false }).catch(() => ({ buttons: [] })),
+      ]);
       setLinks(l);
+      setButtons(pb.buttons || []);
     } catch {}
   }, []);
 
@@ -50,8 +60,17 @@ export default function ProfileScreen() {
   }, [loadLinks, refreshUser]));
 
   const open = (url?: string) => {
-    if (!url) return;
-    Linking.openURL(url).catch(() => toast.error("Cannot open link"));
+    if (!url) {
+      toast.info("Not configured", { description: "Admin hasn't set a URL for this button yet." });
+      return;
+    }
+    const trimmed = url.trim();
+    // Internal app routes start with "/"
+    if (trimmed.startsWith("/")) {
+      router.push(trimmed as any);
+      return;
+    }
+    Linking.openURL(trimmed).catch(() => toast.error("Cannot open link"));
   };
 
   const doAdminLogin = async () => {
@@ -117,18 +136,22 @@ export default function ProfileScreen() {
           />
         </Section>
 
-        {/* Quick access — old style, text rows with subtitles */}
+        {/* Quick access — dynamic from admin config */}
         <Section title="Quick Access">
-          <Row icon={<Send size={18} color="#0088cc" />} title="Telegram Channel"
-            onPress={() => open(links?.telegram)} testID="qa-telegram" />
-          <Row icon={<MessageCircle size={18} color="#0088cc" />} title="Contact on Telegram"
-            onPress={() => open(links?.telegram_contact)} testID="qa-telegram-contact" />
-          <Row icon={<Briefcase size={18} color={theme.colors.primary} />} title="Contact for Business"
-            onPress={() => open(links?.business_contact)} testID="qa-business" />
-          <Row icon={<ShieldCheck size={18} color={theme.colors.primary} />} title="Privacy Policy"
-            onPress={() => open(links?.privacy_policy)} testID="qa-privacy" />
-          <Row icon={<FileText size={18} color={theme.colors.primary} />} title="Terms & Conditions"
-            onPress={() => open(links?.terms)} testID="qa-terms" />
+          {buttons.map((b) => (
+            <Row
+              key={b.id}
+              icon={renderProfileIcon(b.icon, 18, b.color || theme.colors.primary)}
+              title={b.title}
+              onPress={() => open(b.url)}
+              testID={`qa-${b.id}`}
+            />
+          ))}
+          {buttons.length === 0 && (
+            <Text style={styles.emptyHint}>
+              No quick access buttons configured.
+            </Text>
+          )}
         </Section>
 
         {user?.is_admin && (
@@ -149,10 +172,10 @@ export default function ProfileScreen() {
             onPress={async () => {
               try {
                 const info = await api<{ play_store_url?: string }>("/version", { auth: false });
-                const url = info?.play_store_url || "https://play.google.com/store/apps/details?id=com.taskmint.app";
+                const url = info?.play_store_url || "https://play.google.com/store/apps/details?id=com.labs93world.taskmint";
                 Linking.openURL(url).catch(() => toast.error("Cannot open Play Store"));
               } catch {
-                Linking.openURL("https://play.google.com/store/apps/details?id=com.taskmint.app").catch(() => {});
+                Linking.openURL("https://play.google.com/store/apps/details?id=com.labs93world.taskmint").catch(() => {});
               }
             }}
             onLongPress={handleLongPress}
@@ -332,6 +355,7 @@ const styles = StyleSheet.create({
   adminBtnText: { color: theme.colors.muted, fontWeight: "700", fontSize: 13 },
   versionRow: { alignItems: "center", marginTop: 24, paddingVertical: 8 },
   versionText: { color: theme.colors.muted, fontSize: 13, fontWeight: "700", letterSpacing: 0.5 },
+  emptyHint: { color: theme.colors.muted, fontSize: 13, paddingVertical: 12, paddingHorizontal: 16, textAlign: "center" },
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: {
     backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24,
