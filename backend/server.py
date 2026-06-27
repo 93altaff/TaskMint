@@ -289,7 +289,7 @@ class ReferralSettings(BaseModel):
 
 class AppVersionInfo(BaseModel):
     latest_version: str = "1.0.4"
-    min_supported_version: str = "1.0.4"
+    min_supported_version: str = "1.0.0"
     play_store_url: str = "https://play.google.com/store/apps/details?id=com.labs93world.taskmint"
     force_update: bool = False
     release_notes: str = ""
