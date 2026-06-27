@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import {
-  ChevronLeft, Smartphone, Building2, Check, Clock, X, AlertCircle,
+  ChevronLeft, Check, Clock, X, AlertCircle,
   Gamepad2, Megaphone,
 } from "lucide-react-native";
 import { theme, pointsToInr, setExchangeRatio } from "../src/lib/theme";
@@ -178,7 +178,7 @@ export default function WithdrawScreen() {
             <ChevronLeft size={26} color={theme.colors.text} />
           </TouchableOpacity>
           <Text style={styles.title}>
-            {source === "campaign" ? "Withdraw — Campaigns"
+            {source === "campaign" ? "Withdraw — Offerwall"
               : source === "games_task" ? "Withdraw — Games & Task"
               : "Withdraw"}
           </Text>
@@ -186,132 +186,95 @@ export default function WithdrawScreen() {
         </View>
 
         <ScrollView contentContainerStyle={{ padding: theme.spacing.lg, paddingBottom: 16 }}>
-          <BalanceCard points={activeBalance} />
+          <BalanceCard
+            points={activeBalance}
+            walletLabel={source === "campaign" ? "OFFERWALL" : source === "games_task" ? "GAMES & TASK" : "BALANCE"}
+            onAction={source ? () => { setShowPicker(true); setSelectedPts(null); setCustomPts(""); } : undefined}
+            actionLabel="switch"
+          />
 
-          {source && (
+          {/* Simple UPI / Bank segmented tabs */}
+          <View style={styles.segRow}>
             <TouchableOpacity
-              style={styles.switchBtn}
-              onPress={() => { setShowPicker(true); setSelectedPts(null); setCustomPts(""); }}
-              testID="switch-source-btn"
-            >
-              <Text style={styles.switchBtnText}>Switch wallet</Text>
-            </TouchableOpacity>
-          )}
-
-          <Text style={styles.sectionLabel}>SELECT METHOD</Text>
-          <View style={styles.methodRow}>
-            <TouchableOpacity
-              style={[styles.methodCard, method === "upi" && styles.methodActive]}
+              style={[styles.segBtn, method === "upi" && styles.segBtnActive]}
               onPress={() => setMethod("upi")}
               testID="method-upi"
             >
-              <Smartphone size={22} color={method === "upi" ? theme.colors.primary : theme.colors.muted} />
-              <Text style={[styles.methodText, method === "upi" && { color: theme.colors.primary }]}>UPI</Text>
-              <Text style={styles.methodSub}>Instant</Text>
+              <Text style={[styles.segText, method === "upi" && styles.segTextActive]}>UPI</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.methodCard, method === "bank" && styles.methodActive]}
+              style={[styles.segBtn, method === "bank" && styles.segBtnActive]}
               onPress={() => setMethod("bank")}
               testID="method-bank"
             >
-              <Building2 size={22} color={method === "bank" ? theme.colors.primary : theme.colors.muted} />
-              <Text style={[styles.methodText, method === "bank" && { color: theme.colors.primary }]}>Bank</Text>
-              <Text style={styles.methodSub}>1-2 days</Text>
+              <Text style={[styles.segText, method === "bank" && styles.segTextActive]}>Bank</Text>
             </TouchableOpacity>
           </View>
 
           {source === "campaign" ? (
-            <>
-              <Text style={styles.sectionLabel}>ENTER AMOUNT</Text>
-              <View style={styles.amountInputBox}>
-                <Text style={styles.amountInputPrefix}>pts</Text>
-                <TextInput
-                  value={customPts}
-                  onChangeText={(v) => setCustomPts(v.replace(/[^0-9]/g, ""))}
-                  keyboardType="number-pad"
-                  placeholder="e.g. 1500"
-                  placeholderTextColor={theme.colors.muted}
-                  style={styles.amountInput}
-                  testID="amount-input"
-                />
-                <Text style={styles.amountInputSuffix}>
-                  ≈ ₹{points ? pointsToInr(points) : "0"}
-                </Text>
-              </View>
-              <Text style={styles.note}>
-                Withdraw any amount from your campaign earnings — no minimum.
+            <View style={styles.amountInputBox}>
+              <TextInput
+                value={customPts}
+                onChangeText={(v) => setCustomPts(v.replace(/[^0-9]/g, ""))}
+                keyboardType="number-pad"
+                placeholder="Enter points"
+                placeholderTextColor={theme.colors.muted}
+                style={styles.amountInput}
+                testID="amount-input"
+              />
+              <Text style={styles.amountInputSuffix}>
+                ≈ ₹{points ? pointsToInr(points) : "0"}
               </Text>
-            </>
+            </View>
           ) : (
-            <>
-              <Text style={styles.sectionLabel}>SELECT AMOUNT</Text>
-              <View style={styles.amountChips}>
-                {visibleAmounts.map((p) => (
-                  <TouchableOpacity
-                    key={p}
-                    style={[styles.chip, selectedPts === p && styles.chipActive]}
-                    onPress={() => setSelectedPts(p)}
-                    testID={`amount-${p}`}
-                  >
-                    <Text style={[styles.chipText, selectedPts === p && { color: "#fff" }]}>
-                      ₹{pointsToInr(p)}
-                    </Text>
-                    <Text style={[styles.chipSub, selectedPts === p && { color: "rgba(255,255,255,0.85)" }]}>
-                      {p} pts
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
+            <View style={styles.amountChips}>
+              {visibleAmounts.map((p) => (
+                <TouchableOpacity
+                  key={p}
+                  style={[styles.chip, selectedPts === p && styles.chipActive]}
+                  onPress={() => setSelectedPts(p)}
+                  testID={`amount-${p}`}
+                >
+                  <Text style={[styles.chipText, selectedPts === p && { color: "#fff" }]}>
+                    ₹{Math.round(pointsToInr(p))}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
 
           {method === "upi" ? (
-            <View style={styles.formGroup}>
-              <Text style={styles.inputLabel}>UPI ID</Text>
-              <TextInput
-                value={upi} onChangeText={setUpi} placeholder="yourname@upi"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input} autoCapitalize="none"
-                testID="upi-input"
-              />
-            </View>
+            <TextInput
+              value={upi} onChangeText={setUpi} placeholder="UPI ID (e.g. yourname@upi)"
+              placeholderTextColor={theme.colors.muted}
+              style={[styles.input, { marginTop: theme.spacing.md }]} autoCapitalize="none"
+              testID="upi-input"
+            />
           ) : (
             <>
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Account Holder Name</Text>
-                <TextInput value={holder} onChangeText={setHolder} placeholder="Full name"
-                  placeholderTextColor={theme.colors.muted} style={styles.input} testID="bank-holder-input" />
-              </View>
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Account Number</Text>
-                <TextInput value={acc} onChangeText={setAcc} keyboardType="number-pad"
-                  placeholder="Account number" placeholderTextColor={theme.colors.muted}
-                  style={styles.input} testID="bank-acc-input" />
-              </View>
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>IFSC Code</Text>
-                <TextInput value={ifsc} onChangeText={(v) => setIfsc(v.toUpperCase())}
-                  placeholder="HDFC0000123" placeholderTextColor={theme.colors.muted}
-                  style={styles.input} autoCapitalize="characters" testID="bank-ifsc-input" />
-              </View>
+              <TextInput value={holder} onChangeText={setHolder}
+                placeholder="Account Holder Name"
+                placeholderTextColor={theme.colors.muted}
+                style={[styles.input, { marginTop: theme.spacing.md }]} testID="bank-holder-input" />
+              <TextInput value={acc} onChangeText={setAcc} keyboardType="number-pad"
+                placeholder="Account Number" placeholderTextColor={theme.colors.muted}
+                style={[styles.input, { marginTop: 10 }]} testID="bank-acc-input" />
+              <TextInput value={ifsc} onChangeText={(v) => setIfsc(v.toUpperCase())}
+                placeholder="IFSC Code" placeholderTextColor={theme.colors.muted}
+                style={[styles.input, { marginTop: 10 }]}
+                autoCapitalize="characters" testID="bank-ifsc-input" />
             </>
           )}
 
           {needsMobile && (
             <View>
               <Text style={[styles.sectionLabel, { marginTop: theme.spacing.lg }]}>MOBILE NUMBER (one-time)</Text>
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Mobile Number</Text>
-                <TextInput value={mobile1} onChangeText={setMobile1} keyboardType="phone-pad"
-                  placeholder="10-digit mobile" placeholderTextColor={theme.colors.muted}
-                  maxLength={15} style={styles.input} testID="wd-mobile1" />
-              </View>
-              <View style={styles.formGroup}>
-                <Text style={styles.inputLabel}>Confirm Mobile Number</Text>
-                <TextInput value={mobile2} onChangeText={setMobile2} keyboardType="phone-pad"
-                  placeholder="Re-enter mobile" placeholderTextColor={theme.colors.muted}
-                  maxLength={15} style={styles.input} testID="wd-mobile2" />
-              </View>
+              <TextInput value={mobile1} onChangeText={setMobile1} keyboardType="phone-pad"
+                placeholder="10-digit mobile" placeholderTextColor={theme.colors.muted}
+                maxLength={15} style={[styles.input, { marginTop: 6 }]} testID="wd-mobile1" />
+              <TextInput value={mobile2} onChangeText={setMobile2} keyboardType="phone-pad"
+                placeholder="Re-enter mobile" placeholderTextColor={theme.colors.muted}
+                maxLength={15} style={[styles.input, { marginTop: 10 }]} testID="wd-mobile2" />
             </View>
           )}
 
@@ -321,6 +284,11 @@ export default function WithdrawScreen() {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
+
+          {/* Native Ad shown directly above the submit button (per product spec). */}
+          <View style={{ marginTop: theme.spacing.md }}>
+            <NativeAd testID="withdraw-native-ad" />
+          </View>
 
           <TouchableOpacity
             style={[
@@ -352,10 +320,10 @@ export default function WithdrawScreen() {
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.wdAmt}>
-                    ₹{h.inr_amount.toFixed(2)}
+                    ₹{Math.round(h.inr_amount)}
                     {h.source && (
                       <Text style={styles.wdSourceTag}>
-                        {"  "}• {h.source === "campaign" ? "Campaigns" : "Games & Task"}
+                        {"  "}• {h.source === "campaign" ? "Offerwall" : "Games & Task"}
                       </Text>
                     )}
                   </Text>
@@ -380,9 +348,6 @@ export default function WithdrawScreen() {
               </View>
             ))
           )}
-          <View style={{ paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md }}>
-            <NativeAd testID="withdraw-native-ad" />
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -424,7 +389,7 @@ export default function WithdrawScreen() {
                 <Megaphone size={24} color="#F59E0B" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.pickerBtnTitle}>Campaigns</Text>
+                <Text style={styles.pickerBtnTitle}>Offerwall</Text>
                 <Text style={styles.pickerBtnSub}>
                   {campaignBalance.toLocaleString()} pts • ≈ ₹{pointsToInr(campaignBalance)}
                 </Text>
@@ -471,30 +436,44 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: "800", color: theme.colors.muted,
     letterSpacing: 1.4, marginTop: theme.spacing.lg, marginBottom: 8,
   },
-  methodRow: { flexDirection: "row", gap: 12 },
-  methodCard: {
-    flex: 1, minWidth: 0,
+  /* Simple segmented UPI / Bank tabs */
+  segRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: theme.spacing.md,
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radii.lg,
-    paddingVertical: 14, paddingHorizontal: 12,
-    borderWidth: 2, borderColor: theme.colors.border,
-    alignItems: "center", gap: 4,
+    padding: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
   },
-  methodActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft },
-  methodText: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
-  methodSub: { fontSize: 10, color: theme.colors.muted, fontWeight: "600" },
-  amountChips: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-  chip: {
-    width: "23.5%",
-    paddingVertical: 12, paddingHorizontal: 4,
-    borderRadius: theme.radii.md, backgroundColor: theme.colors.surface,
-    borderWidth: 2, borderColor: theme.colors.border,
+  segBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 999,
     alignItems: "center",
-    marginBottom: 10,
+    justifyContent: "center",
+  },
+  segBtnActive: { backgroundColor: theme.colors.primary },
+  segText: { color: theme.colors.muted, fontWeight: "800", fontSize: 13 },
+  segTextActive: { color: "#fff" },
+  /* Center-aligned compact ₹ chips (no decimals, no points subtitle) */
+  amountChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: theme.spacing.md,
+  },
+  chip: {
+    minWidth: 78,
+    paddingVertical: 10, paddingHorizontal: 14,
+    borderRadius: theme.radii.pill, backgroundColor: theme.colors.surface,
+    borderWidth: 1, borderColor: theme.colors.border,
+    alignItems: "center",
   },
   chipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  chipText: { fontSize: 15, fontWeight: "800", color: theme.colors.text },
-  chipSub: { fontSize: 9, color: theme.colors.muted, fontWeight: "600", marginTop: 2 },
+  chipText: { fontSize: 14, fontWeight: "800", color: theme.colors.text },
   amountInputBox: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: theme.colors.surface,

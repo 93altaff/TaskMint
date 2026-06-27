@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { Platform, View, Text, StyleSheet } from "react-native";
-import { theme } from "../lib/theme";
+import { Platform, View, StyleSheet } from "react-native";
 import { getAdUnitId } from "../lib/adConfig";
 
 // Conditionally require the native module only on Android/iOS.
@@ -18,34 +17,42 @@ try {
 } catch {}
 
 /**
- * Fixed-height banner ad. Uses Google's test banner ID in __DEV__ builds so
- * it always shows a live "Test Ad" during development. In release builds it
- * uses the admin-configurable AdMob unit pulled from the backend. If the ad
- * fails to load (no fill, unit still activating, etc.) we render a styled
- * placeholder so users never see an empty rectangle.
+ * Adaptive banner ad.
+ *
+ * Behaviour rules (per product spec):
+ *   • While the ad is loading → render nothing (no placeholder, no reserved height).
+ *   • If the ad fails to load → render nothing.
+ *   • On web / Expo Go (no native module) → render nothing.
+ *   • Only when the ad successfully loads do we reveal the banner.
+ *
+ * The native `<BannerAd />` is always mounted on supported platforms (it has
+ * to be in order to fire the load callbacks), but it stays at zero size until
+ * `onAdLoaded` fires.
  */
 export default function BannerAd({ testID = "banner-ad" }: { testID?: string }) {
+  const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  // On web (preview) or if the native module failed to load (e.g. running in
-  // Expo Go), render a light placeholder instead of crashing.
-  if (!RNBannerAd || failed) {
-    return (
-      <View style={styles.wrap} testID={testID}>
-        <Text style={styles.label}>ADVERTISEMENT</Text>
-        <Text style={styles.sub}>Sponsored by TaskMint partners</Text>
-      </View>
-    );
-  }
+  // No banner support at all → render nothing
+  if (!RNBannerAd) return null;
+
+  // Ad permanently failed for this mount → render nothing
+  if (failed) return null;
 
   const unitId = __DEV__ ? TestIds.BANNER : getAdUnitId("banner");
+  const visible = loaded;
 
   return (
-    <View style={styles.native} testID={testID}>
+    <View
+      style={visible ? styles.visible : styles.hidden}
+      pointerEvents={visible ? "auto" : "none"}
+      testID={testID}
+    >
       <RNBannerAd
         unitId={unitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
         requestOptions={{ requestNonPersonalizedAdsOnly: false }}
+        onAdLoaded={() => setLoaded(true)}
         onAdFailedToLoad={(e: any) => {
           console.log("[BannerAd] failed:", e?.message || e);
           setFailed(true);
@@ -56,19 +63,8 @@ export default function BannerAd({ testID = "banner-ad" }: { testID?: string }) 
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    height: 60,
-    marginHorizontal: theme.spacing.md,
-    marginVertical: theme.spacing.sm,
-    backgroundColor: "#EEF1F6",
-    borderRadius: theme.radii.md,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  native: { alignItems: "center", justifyContent: "center", marginVertical: 4 },
-  label: { fontSize: 11, fontWeight: "800", letterSpacing: 1.4, color: theme.colors.muted },
-  sub: { fontSize: 10, color: "#9CA3AF", marginTop: 2 },
+  visible: { alignItems: "center", justifyContent: "center", marginVertical: 4 },
+  // Keep the native view mounted (so load callbacks can fire) but make it
+  // take zero layout space and stay invisible until the ad actually loads.
+  hidden: { width: 0, height: 0, opacity: 0, overflow: "hidden" },
 });

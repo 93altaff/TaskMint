@@ -1,19 +1,49 @@
 import React from "react";
 import { View, Text, StyleSheet, ImageBackground, TouchableOpacity } from "react-native";
-import { Wallet, ArrowDownToLine } from "lucide-react-native";
+import {
+  Wallet,
+  ArrowDownToLine,
+  RefreshCw,
+} from "lucide-react-native";
 import { theme, pointsToInr } from "../lib/theme";
 
 const BG = "https://images.pexels.com/photos/7135024/pexels-photo-7135024.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
 
+/**
+ * Compact horizontal balance card.
+ *
+ * Layout:
+ *   ┌───────────────────────────────────────────────────────┐
+ *   │  💰  BALANCE                          ┌──────────┐    │
+ *   │      7,629 pts  ≈ ₹76.29              │ Withdraw │    │
+ *   │                                       └──────────┘    │
+ *   └───────────────────────────────────────────────────────┘
+ *
+ * `actionLabel` controls the right-side button text:
+ *   • "withdraw" (default) → primary Withdraw button (used on Wallet tab)
+ *   • "switch"             → "Switch Wallet" button (used on Withdraw screen)
+ *
+ * Pressing the button calls `onAction()`. If no handler is provided the
+ * button is hidden, leaving a pure info card.
+ */
+export type BalanceCardAction = "withdraw" | "switch";
+
 export default function BalanceCard({
   points,
-  onWithdraw,
+  onAction,
+  actionLabel = "withdraw",
+  walletLabel,
   testID = "balance-card",
 }: {
   points: number;
-  onWithdraw?: () => void;
+  onAction?: () => void;
+  actionLabel?: BalanceCardAction;
+  /** Optional override for the "BALANCE" tag (e.g. "CAMPAIGN" / "GAMES"). */
+  walletLabel?: string;
   testID?: string;
 }) {
+  const isSwitch = actionLabel === "switch";
+
   return (
     <ImageBackground
       source={{ uri: BG }}
@@ -22,25 +52,33 @@ export default function BalanceCard({
       testID={testID}
     >
       <View style={styles.tint} />
-      <View style={styles.row}>
-        <View style={styles.iconWrap}>
-          <Wallet size={20} color="#fff" />
+
+      <View style={styles.left}>
+        <View style={styles.headRow}>
+          <View style={styles.iconWrap}>
+            <Wallet size={14} color="#fff" />
+          </View>
+          <Text style={styles.label}>{walletLabel || "BALANCE"}</Text>
         </View>
-        <Text style={styles.label}>BALANCE</Text>
+        <Text style={styles.points} testID="balance-points">
+          {points.toLocaleString()} pts
+        </Text>
+        <Text style={styles.inr}>≈ ₹{pointsToInr(points)}</Text>
       </View>
-      <Text style={styles.points} testID="balance-points">
-        {points.toLocaleString()} pts
-      </Text>
-      <Text style={styles.inr}>≈ ₹ {pointsToInr(points)}</Text>
-      {onWithdraw && (
+
+      {onAction && (
         <TouchableOpacity
           style={styles.btn}
-          onPress={onWithdraw}
-          testID="balance-withdraw-btn"
+          onPress={onAction}
+          testID={isSwitch ? "balance-switch-btn" : "balance-withdraw-btn"}
           activeOpacity={0.85}
         >
-          <ArrowDownToLine size={16} color={theme.colors.primary} />
-          <Text style={styles.btnText}>Withdraw to Cash</Text>
+          {isSwitch ? (
+            <RefreshCw size={14} color={theme.colors.primary} />
+          ) : (
+            <ArrowDownToLine size={14} color={theme.colors.primary} />
+          )}
+          <Text style={styles.btnText}>{isSwitch ? "Switch" : "Withdraw"}</Text>
         </TouchableOpacity>
       )}
     </ImageBackground>
@@ -51,33 +89,51 @@ const styles = StyleSheet.create({
   card: {
     overflow: "hidden",
     borderRadius: theme.radii.xl,
-    padding: theme.spacing.lg,
-    minHeight: 180,
-    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     backgroundColor: theme.colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
   tint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(28, 17, 89, 0.55)",
     borderRadius: theme.radii.xl,
   },
-  row: { flexDirection: "row", alignItems: "center", gap: 10 },
+  left: { flex: 1, gap: 2 },
+  headRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   iconWrap: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: "rgba(255,255,255,0.18)",
-    alignItems: "center", justifyContent: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  label: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "800", letterSpacing: 1.4 },
+  label: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
   points: {
-    color: "#fff", fontSize: 36, fontWeight: "800", letterSpacing: -1, marginTop: 12,
-    textShadowColor: "rgba(0,0,0,0.25)", textShadowRadius: 6,
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    marginTop: 2,
   },
-  inr: { color: "rgba(255,255,255,0.85)", fontSize: 14, fontWeight: "600", marginTop: 4 },
+  inr: { color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "600" },
   btn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "#fff", alignSelf: "flex-start",
-    paddingVertical: 10, paddingHorizontal: 16,
-    borderRadius: theme.radii.pill, marginTop: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fff",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: theme.radii.pill,
   },
-  btnText: { color: theme.colors.primary, fontWeight: "800", fontSize: 14 },
+  btnText: { color: theme.colors.primary, fontWeight: "800", fontSize: 12 },
 });

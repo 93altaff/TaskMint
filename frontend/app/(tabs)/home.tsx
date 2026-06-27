@@ -190,7 +190,8 @@ export default function HomeScreen() {
 
         {/* Offerwall + Campaigns with tabs */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>High Paying Campaigns</Text>
+          {/* Section title intentionally hidden to save vertical space.
+              The tabs below act as the section header. */}
 
           {/* Tabs */}
           <View style={styles.tabsRow}>

@@ -33,7 +33,7 @@ const sourceLabel: Record<string, string> = {
 const FILTERS: { key: Filter; label: string; testID: string }[] = [
   { key: "all",         label: "All",            testID: "wallet-filter-all" },
   { key: "games_task",  label: "Games & Task",   testID: "wallet-filter-games" },
-  { key: "campaign",    label: "Campaigns",      testID: "wallet-filter-campaigns" },
+  { key: "campaign",    label: "Offerwall",      testID: "wallet-filter-offerwall" },
 ];
 
 export default function WalletScreen() {
@@ -83,7 +83,8 @@ export default function WalletScreen() {
         <View style={styles.section}>
           <BalanceCard
             points={user?.points ?? 0}
-            onWithdraw={() => router.push("/withdraw")}
+            onAction={() => router.push("/withdraw")}
+            actionLabel="withdraw"
           />
         </View>
 
