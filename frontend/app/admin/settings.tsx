@@ -22,7 +22,9 @@ type Config = {
   watch_min: number; watch_max: number;
   survey_min: number; survey_max: number;
   quiz_min: number; quiz_max: number;
-  higherlower_per_correct: number;
+  hl_reward_streak_3: number;
+  hl_reward_streak_5: number;
+  hl_reward_streak_7: number;
   memory_completion: number;
   ttt_win: number;
   math_per_correct: number;
@@ -180,19 +182,8 @@ export default function AdminSettings() {
             ))}
           </Section>
 
-          {/* Game rewards */}
-          <Section title="Game reward points">
-            <Row label="Memory Match — completion"><NumInput value={config.memory_completion} onChangeText={setNum("memory_completion")} /></Row>
-            <Row label="Tic-Tac-Toe — Hard win (Easy/Med scale to 30%/60%)"><NumInput value={config.ttt_win} onChangeText={setNum("ttt_win")} /></Row>
-            <Row label="Math Sprint — points per correct answer"><NumInput value={config.math_per_correct} onChangeText={setNum("math_per_correct")} /></Row>
-            <Row label="Higher-Lower — points per correct"><NumInput value={config.higherlower_per_correct} onChangeText={setNum("higherlower_per_correct")} /></Row>
-            <Row label="Tap Rush — points per Diamond"><NumInput value={config.tap_per_diamond} onChangeText={setNum("tap_per_diamond")} /></Row>
-            <Row label="Tap Rush — points per Gold"><NumInput value={config.tap_per_gold} onChangeText={setNum("tap_per_gold")} /></Row>
-            <Row label="Tap Rush — points per Silver"><NumInput value={config.tap_per_silver} onChangeText={setNum("tap_per_silver")} /></Row>
-            <Row label="Tap Rush — Bomb penalty (deducted)"><NumInput value={config.tap_bomb_penalty} onChangeText={setNum("tap_bomb_penalty")} /></Row>
-            <Row label="Trivia Streak — points per correct"><NumInput value={config.trivia_per_correct} onChangeText={setNum("trivia_per_correct")} /></Row>
-            <Row label="Trivia Streak — bonus per streak step (above 1)"><NumInput value={config.trivia_streak_bonus} onChangeText={setNum("trivia_streak_bonus")} /></Row>
-          </Section>
+          {/* Game rewards moved → /admin/game-rewards
+              Maintenance moved → /admin/maintenance */}
 
           {/* Check-in */}
           <Section title="Daily Check-in reward curve">
@@ -241,39 +232,7 @@ export default function AdminSettings() {
             )}
           </Section>
 
-          {/* Maintenance per route */}
-          <Section title="Maintenance / Coming Soon mode">
-            <Text style={styles.muted}>Toggle ON to replace that screen's body with a Coming Soon / Under Maintenance card. Add an optional note that users will see on the card.</Text>
-            {ROUTE_GROUPS.map((grp) => (
-              <View key={grp.label} style={{ marginTop: 12, gap: 8 }}>
-                <Text style={styles.subhead}>{grp.label}</Text>
-                {grp.items.map((it) => {
-                  const m = config.maintenance[it.key] || { enabled: false, note: "" };
-                  return (
-                    <View key={it.key} style={styles.maintRow}>
-                      <View style={styles.maintHeader}>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={styles.maintName} numberOfLines={1}>{it.name}</Text>
-                          <Text style={styles.maintKey} numberOfLines={1}>{it.key}</Text>
-                        </View>
-                        <Switch value={m.enabled} onValueChange={() => toggleMaint(it.key)} testID={`maint-toggle-${it.key}`} />
-                      </View>
-                      {m.enabled && (
-                        <TextInput
-                          value={m.note}
-                          onChangeText={(v) => setNote(it.key, v)}
-                          placeholder="Optional note shown on the card…"
-                          placeholderTextColor={theme.colors.muted}
-                          style={styles.noteInput}
-                          testID={`maint-note-${it.key}`}
-                        />
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
-          </Section>
+          {/* Maintenance section moved → /admin/maintenance */}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

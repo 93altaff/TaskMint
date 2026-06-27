@@ -6,7 +6,7 @@ import {
 import { toast } from "sonner-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { ChevronLeft, MessageCircle, ExternalLink, Check, X, Clock, PlayCircle } from "lucide-react-native";
+import { ChevronLeft, MessageCircle, ExternalLink, Check, X, Clock, PlayCircle, Megaphone } from "lucide-react-native";
 import { theme } from "../../src/lib/theme";
 import { api } from "../../src/lib/api";
 import TutorialVideo from "../../src/components/TutorialVideo";
@@ -59,30 +59,17 @@ export default function TaskDetail() {
     if (!c) return;
     const isCampaignKind = (c.category || "") === "Campaigns";
     if (c.link_url) {
-      try {
-        await api(`/tasks/campaign/${c.id}`, { method: "POST" });
-      } catch {}
-      Linking.openURL(c.link_url).catch(() => toast.error("Cannot open link"));
-      setLinkOpened(true);
-    }
-    // Campaigns-category tasks: no proof needed — auto-create pending completion
-    // so admin can approve from the panel. Only fire once (skip if already
-    // pending/approved). Errors are silent to avoid breaking the link open.
-    if (isCampaignKind) {
-      const status = c.completion?.status;
-      const canAutoSubmit = !status || status === "rejected";
-      if (canAutoSubmit) {
+      // Campaigns-category tasks are purely promotional links — no tracking,
+      // no completion record, no admin approval, no reward. Just open the URL.
+      // For every other category, hit /tasks/campaign/{id} so backend can log
+      // the click event (analytics) before opening.
+      if (!isCampaignKind) {
         try {
-          await api(`/tasks/campaign/${c.id}/submit`, {
-            method: "POST",
-            body: { form_field_1_value: "", form_field_2_value: "" },
-          });
-          await load();
-          toast.info("Task started", {
-            description: "Your participation has been recorded. Admin will review and credit your reward.",
-          });
+          await api(`/tasks/campaign/${c.id}`, { method: "POST" });
         } catch {}
       }
+      Linking.openURL(c.link_url).catch(() => toast.error("Cannot open link"));
+      setLinkOpened(true);
     }
   };
 
@@ -255,14 +242,14 @@ export default function TaskDetail() {
             </TouchableOpacity>
           )}
 
-          {/* For Campaigns category — no proof submission. Inform user about flow. */}
-          {canSubmit && isCampaignKind && linkOpened && (
+          {/* Campaigns category — pure promotional link, no submission. */}
+          {isCampaignKind && (
             <View style={styles.campaignInfoCard}>
-              <Check size={18} color={theme.colors.success} />
+              <Megaphone size={18} color={theme.colors.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.campaignInfoTitle}>Participation recorded</Text>
+                <Text style={styles.campaignInfoTitle}>Promotional link</Text>
                 <Text style={styles.campaignInfoBody}>
-                  No proof needed. Admin will review and credit your reward automatically.
+                  Tap "Open Task Link" to visit the partner site. This task does not earn points or require submission.
                 </Text>
               </View>
             </View>

@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import {
   ChevronLeft, Image as ImageIcon, Megaphone, Wallet, LinkIcon, ChevronRight, Shield,
   Users as UsersIcon, ListChecks, IndianRupee, Globe, Gift, Smartphone, RefreshCw,
-  Megaphone as AdsIcon, Sliders, LayoutGrid,
+  Megaphone as AdsIcon, Sliders, LayoutGrid, Gamepad2, Wrench,
 } from "lucide-react-native";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
@@ -95,8 +95,14 @@ export default function AdminHome() {
           sub="Banner, Interstitial, Rewarded & Native unit IDs" onPress={() => router.push("/admin/admob")}
           testID="admin-admob" />
         <Tile icon={<Sliders size={20} color={theme.colors.primary} />} label="App Config"
-          sub="Reward points, exchange ratio, min withdrawal, referral mode, maintenance"
+          sub="Exchange ratio, min withdrawals, task rewards, check-in, referral mode"
           onPress={() => router.push("/admin/settings")} testID="admin-settings" />
+        <Tile icon={<Gamepad2 size={20} color={theme.colors.primary} />} label="Game Rewards"
+          sub="Higher-Lower streak tiers, Memory, TTT, Math, Tap Rush, Trivia"
+          onPress={() => router.push("/admin/game-rewards")} testID="admin-game-rewards" />
+        <Tile icon={<Wrench size={20} color={theme.colors.primary} />} label="Maintenance"
+          sub="Toggle Coming Soon per tab / task / game / wallet screen"
+          onPress={() => router.push("/admin/maintenance")} testID="admin-maintenance" />
         <Tile icon={<ImageIcon size={20} color={theme.colors.primary} />} label="Banners"
           sub="Sliding banners on home" onPress={() => router.push("/admin/banners")}
           testID="admin-banners" />

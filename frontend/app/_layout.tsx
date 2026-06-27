@@ -68,6 +68,8 @@ export default function RootLayout() {
               <Stack.Screen name="admin/version" />
               <Stack.Screen name="admin/admob" />
               <Stack.Screen name="admin/settings" />
+              <Stack.Screen name="admin/game-rewards" />
+              <Stack.Screen name="admin/maintenance" />
               <Stack.Screen name="admin/profile-buttons" />
               <Stack.Screen name="higher-lower" />
               <Stack.Screen name="tap-rush" />

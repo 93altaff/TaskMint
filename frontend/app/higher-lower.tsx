@@ -30,10 +30,10 @@ type GuessRes = {
 
 const CARD_LABEL = (n: number) => (n === 1 ? "A" : n === 11 ? "J" : n === 12 ? "Q" : n === 13 ? "K" : String(n));
 
-function streakReward(s: number) {
-  if (s >= 7) return 100;
-  if (s >= 5) return 75;
-  if (s >= 3) return 30;
+function streakReward(s: number, cfg: { r3: number; r5: number; r7: number }) {
+  if (s >= 7) return cfg.r7;
+  if (s >= 5) return cfg.r5;
+  if (s >= 3) return cfg.r3;
   return 0;
 }
 
@@ -48,7 +48,26 @@ export default function HigherLower() {
   const [streak, setStreak] = useState(0);
   const [potential, setPotential] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Reward tiers fetched from /api/app-config so the local estimate &
+  // displayed hint always match what the backend will actually pay.
+  const [rewardCfg, setRewardCfg] = useState({ r3: 30, r5: 75, r7: 100 });
   const [winPopup, setWinPopup] = useState<{ visible: boolean; points: number; streak: number } | null>(null);
+
+  useEffect(() => {
+    api<{
+      hl_reward_streak_3?: number;
+      hl_reward_streak_5?: number;
+      hl_reward_streak_7?: number;
+    }>("/app-config", { auth: false })
+      .then((c) =>
+        setRewardCfg({
+          r3: Number(c?.hl_reward_streak_3 ?? 30) || 30,
+          r5: Number(c?.hl_reward_streak_5 ?? 75) || 75,
+          r7: Number(c?.hl_reward_streak_7 ?? 100) || 100,
+        }),
+      )
+      .catch(() => {});
+  }, []);
 
   const fetchState = useCallback(async () => {
     try {
@@ -57,7 +76,7 @@ export default function HigherLower() {
       if (s.active) {
         setCard(s.active.current_card);
         setStreak(s.active.streak);
-        setPotential(streakReward(s.active.streak));
+        setPotential(streakReward(s.active.streak, rewardCfg));
       } else {
         setCard(null);
         setStreak(0);
@@ -66,7 +85,7 @@ export default function HigherLower() {
     } catch (e: any) {
       toast.error("Error", { description: e?.message || "Failed to load" });
     }
-  }, []);
+  }, [rewardCfg]);
 
   useEffect(() => { fetchState(); }, [fetchState]);
 
@@ -114,7 +133,7 @@ export default function HigherLower() {
       });
       setCard(r.card);
       setStreak(r.streak);
-      setPotential(r.potential_reward ?? streakReward(r.streak));
+      setPotential(r.potential_reward ?? streakReward(r.streak, rewardCfg));
       if (r.round_over) finishRound(r.reward ?? 0, r.streak);
     } catch (e: any) {
       toast.error("Error", { description: e?.message || "Try again" });
@@ -225,7 +244,7 @@ export default function HigherLower() {
         )}
 
         <Text style={styles.hint}>
-          3 correct → 30 pts • 5 → 75 pts • 7 → 100 pts • One wrong ends the round.
+          3 correct → {rewardCfg.r3} pts • 5 → {rewardCfg.r5} pts • 7 → {rewardCfg.r7} pts • One wrong ends the round.
         </Text>
       </View>
 

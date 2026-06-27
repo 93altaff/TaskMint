@@ -244,7 +244,10 @@ class AppMetaSettings(BaseModel):
     watch_min: int = 50;      watch_max: int = 100
     survey_min: int = 30;     survey_max: int = 100
     quiz_min: int = 30;       quiz_max: int = 100
-    higherlower_per_correct: int = 10
+    # Higher-or-Lower per-streak tier payouts (matches the game logic).
+    hl_reward_streak_3: int = 30
+    hl_reward_streak_5: int = 75
+    hl_reward_streak_7: int = 100
     memory_completion: int = 200
     ttt_win: int = 100
     math_per_correct: int = 5
@@ -1006,38 +1009,44 @@ async def daily_checkin(user: dict = Depends(get_current_user)):
     referrer_id = user.get("referred_by")
     paid = user.get("referral_rewards_paid", []) or []
     if referrer_id:
-        settings = await get_referral_settings()
-        # Multi-tier: if admin configured custom tiers, use them.
-        tiers = settings.get("tiers") or []
-        if tiers:
-            for tier in tiers:
-                streak_days = int(tier.get("streak_days", 0) or 0)
-                pts = int(tier.get("points", 0) or 0)
-                if streak_days > 0 and new_streak == streak_days and streak_days not in paid and pts > 0:
-                    await add_points_and_log(
-                        referrer_id, pts, "referral",
-                        f"Referral bonus — {user.get('name', 'friend')} hit {streak_days}-day streak",
+        # Respect admin's chosen referral mode. Streak payouts only fire when
+        # mode is "streak" or "both"; "withdrawal" mode pays exclusively on
+        # successful withdrawals (handled in the withdrawal-approval endpoint).
+        meta_ref = await get_app_meta()
+        ref_mode = (meta_ref.get("referral_mode") or "streak").lower()
+        if ref_mode in ("streak", "both"):
+            settings = await get_referral_settings()
+            # Multi-tier: if admin configured custom tiers, use them.
+            tiers = settings.get("tiers") or []
+            if tiers:
+                for tier in tiers:
+                    streak_days = int(tier.get("streak_days", 0) or 0)
+                    pts = int(tier.get("points", 0) or 0)
+                    if streak_days > 0 and new_streak == streak_days and streak_days not in paid and pts > 0:
+                        await add_points_and_log(
+                            referrer_id, pts, "referral",
+                            f"Referral bonus — {user.get('name', 'friend')} hit {streak_days}-day streak",
+                        )
+                        await db.users.update_one(
+                            {"user_id": user["user_id"]},
+                            {"$push": {"referral_rewards_paid": streak_days}},
+                        )
+            else:
+                # Legacy 7/15-day rewards
+                if new_streak in (7, 15) and new_streak not in paid:
+                    reward_amt = (
+                        settings.get("streak_7_reward_points", 1000) if new_streak == 7
+                        else settings.get("streak_15_reward_points", 2000)
                     )
+                    if reward_amt > 0:
+                        await add_points_and_log(
+                            referrer_id, reward_amt, "referral",
+                            f"Referral bonus — {user.get('name', 'friend')} hit {new_streak}-day streak",
+                        )
                     await db.users.update_one(
                         {"user_id": user["user_id"]},
-                        {"$push": {"referral_rewards_paid": streak_days}},
+                        {"$push": {"referral_rewards_paid": new_streak}},
                     )
-        else:
-            # Legacy 7/15-day rewards
-            if new_streak in (7, 15) and new_streak not in paid:
-                reward_amt = (
-                    settings.get("streak_7_reward_points", 1000) if new_streak == 7
-                    else settings.get("streak_15_reward_points", 2000)
-                )
-                if reward_amt > 0:
-                    await add_points_and_log(
-                        referrer_id, reward_amt, "referral",
-                        f"Referral bonus — {user.get('name', 'friend')} hit {new_streak}-day streak",
-                    )
-                await db.users.update_one(
-                    {"user_id": user["user_id"]},
-                    {"$push": {"referral_rewards_paid": new_streak}},
-                )
     return {"reward": reward, "streak": new_streak}
 
 @api_router.post("/tasks/spin")
@@ -2701,13 +2710,30 @@ def _hl_today_counts(user: dict) -> tuple[int, int]:
     return int(user.get("hl_rounds_used") or 0), int(user.get("hl_ad_refills_used") or 0)
 
 
-def _hl_streak_reward(streak: int, settings: dict) -> int:
+def _hl_streak_reward(streak: int, settings: dict, meta: dict | None = None) -> int:
+    """Return the points awarded for a Higher-Lower streak.
+
+    Source of truth (in priority order):
+      1. `app_settings.meta.hl_reward_streak_{3,5,7}` — controlled by Admin → App Config.
+      2. Legacy `game_settings.hl_reward_streak_{3,5,7}` — kept for back-compat.
+      3. Hard-coded defaults (30 / 75 / 100).
+    """
+    meta = meta or {}
+
+    def _val(meta_key: str, legacy_key: str, default: int) -> int:
+        if meta_key in meta and meta[meta_key] is not None:
+            try:
+                return int(meta[meta_key])
+            except (TypeError, ValueError):
+                pass
+        return int(settings.get(legacy_key, default))
+
     if streak >= 7:
-        return int(settings["hl_reward_streak_7"])
+        return _val("hl_reward_streak_7", "hl_reward_streak_7", 100)
     if streak >= 5:
-        return int(settings["hl_reward_streak_5"])
+        return _val("hl_reward_streak_5", "hl_reward_streak_5", 75)
     if streak >= 3:
-        return int(settings["hl_reward_streak_3"])
+        return _val("hl_reward_streak_3", "hl_reward_streak_3", 30)
     return 0
 
 
@@ -2771,6 +2797,7 @@ class HLGuessBody(BaseModel):
 @api_router.post("/games/hl/guess")
 async def hl_guess(payload: HLGuessBody, user: dict = Depends(get_current_user)):
     settings = await get_game_settings()
+    meta = await get_app_meta()
     active = user.get("hl_active")
     if not active or active.get("date") != _today_str():
         raise HTTPException(status_code=400, detail="No active round — start a new one")
@@ -2801,12 +2828,12 @@ async def hl_guess(payload: HLGuessBody, user: dict = Depends(get_current_user))
             "prev_card": current,
             "correct": True,
             "streak": streak,
-            "potential_reward": _hl_streak_reward(streak, settings),
+            "potential_reward": _hl_streak_reward(streak, settings, meta),
             "round_over": False,
         }
 
     # Wrong — end round, award based on streak achieved
-    reward = _hl_streak_reward(streak, settings)
+    reward = _hl_streak_reward(streak, settings, meta)
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"hl_active": None}})
     if reward > 0:
         await add_points_and_log(user["user_id"], reward, "higher_lower", f"H/L streak {streak}")
@@ -2823,11 +2850,12 @@ async def hl_guess(payload: HLGuessBody, user: dict = Depends(get_current_user))
 @api_router.post("/games/hl/cashout")
 async def hl_cashout(user: dict = Depends(get_current_user)):
     settings = await get_game_settings()
+    meta = await get_app_meta()
     active = user.get("hl_active")
     if not active or active.get("date") != _today_str():
         raise HTTPException(status_code=400, detail="No active round")
     streak = int(active.get("streak") or 0)
-    reward = _hl_streak_reward(streak, settings)
+    reward = _hl_streak_reward(streak, settings, meta)
     if reward <= 0:
         raise HTTPException(status_code=400, detail="Need at least 3 correct to cash out")
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"hl_active": None}})
