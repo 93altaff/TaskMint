@@ -16,37 +16,54 @@ import { useMaintenance } from "../../src/hooks/useMaintenance";
 const { width: SCREEN_W } = Dimensions.get("window");
 
 // ============================================================================
-// LAYOUT — 3-column grid, perfectly aligned, edge-to-edge square cards
+// LAYOUT
 // ============================================================================
-const H_PADDING = 16;          // ScrollView horizontal padding
-const COL_GAP = 10;            // Gap between columns AND rows
-const COLS = 3;
-const CARD_SIZE = Math.floor(
-  (SCREEN_W - H_PADDING * 2 - COL_GAP * (COLS - 1)) / COLS,
+const H_PADDING = 16;
+const COL_GAP = 10;
+
+// 2-column hero row size
+const HERO_COLS = 2;
+const HERO_SIZE = Math.floor(
+  (SCREEN_W - H_PADDING * 2 - COL_GAP * (HERO_COLS - 1)) / HERO_COLS,
 );
 
+// 3-column grid card size
+const GRID_COLS = 3;
+const CARD_SIZE = Math.floor(
+  (SCREEN_W - H_PADDING * 2 - COL_GAP * (GRID_COLS - 1)) / GRID_COLS,
+);
+
+// Inner padding so the artwork has breathing room from the rounded corners.
+const INNER_PAD = 6;
+
 // ============================================================================
-// CUSTOM PREMIUM CARD ARTWORK (uploaded by user)
-// Each entry = 1 card. The image IS the card.
+// ASSETS — user-uploaded premium card artwork
 // ============================================================================
 type Card = { key: string; image: { uri: string }; route: string };
 
-const CARDS: Card[] = [
-  { key: "checkin",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/x6hdp4u9_Daily%20Check-in.png" },     route: "/checkin" },
-  { key: "refer",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/vw3e26bj_Refer%20%26%20Earn.png" },   route: "/refer" },
-  { key: "quizzes",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/2jx1gvcy_Quizzes.png" },               route: "/quizzes" },
-  { key: "surveys",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/gg1c12jm_Surveys.png" },               route: "/surveys" },
-  { key: "visit",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/wx3xbupj_Visit%20%26%20Earn.png" },    route: "/visit-earn" },
-  { key: "watch",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/plghot37_Watch%20%26%20Earn.png" },    route: "/watch-earn" },
-  { key: "scratch",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/kkh28geq_Scratch%20%26%20Earn.png" },  route: "/scratch" },
-  { key: "spin",     image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/n8x5w80e_Spin%20%26%20Win.png" },      route: "/spin" },
-  { key: "trivia",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/1egvrie3_Trivia%20Streak.png" },       route: "/trivia-streak" },
-  { key: "tap",      image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/ltvcekrs_Tap%20The%20Coins.png" },     route: "/tap-rush" },
-  { key: "daily",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/dlv7fgvt_Daily%20Challenge.png" },     route: "/daily-challenge" },
-  { key: "math",     image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/uplo3z6d_Match%20Sprint.png" },        route: "/math-sprint" },
-  { key: "ttt",      image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/xw0uyd0n_Tic%20Tac%20Toe.png" },       route: "/tic-tac-toe" },
-  { key: "memory",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/xi30kh1e_memory%20Match.png" },        route: "/memory-match" },
-  { key: "hl",       image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/etpdwkkd_higher%20Lower.png" },        route: "/higher-lower" },
+const HEROES: Card[] = [
+  { key: "checkin", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/x6hdp4u9_Daily%20Check-in.png" }, route: "/checkin" },
+  { key: "refer",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/vw3e26bj_Refer%20%26%20Earn.png" }, route: "/refer" },
+];
+
+// Order per user spec:
+// Higher Lower, Memory Match, Tic-Tac-Toe, Math Sprint, Daily Challenge,
+// Tap the Coins, Trivia Streak, Spin & Win, Scratch & Earn, Watch & Earn,
+// Visit & Earn, Surveys, Quizzes
+const GRID: Card[] = [
+  { key: "hl",      image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/etpdwkkd_higher%20Lower.png" },     route: "/higher-lower" },
+  { key: "memory",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/xi30kh1e_memory%20Match.png" },     route: "/memory-match" },
+  { key: "ttt",     image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/xw0uyd0n_Tic%20Tac%20Toe.png" },    route: "/tic-tac-toe" },
+  { key: "math",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/uplo3z6d_Match%20Sprint.png" },     route: "/math-sprint" },
+  { key: "daily",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/dlv7fgvt_Daily%20Challenge.png" },  route: "/daily-challenge" },
+  { key: "tap",     image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/ltvcekrs_Tap%20The%20Coins.png" },  route: "/tap-rush" },
+  { key: "trivia",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/1egvrie3_Trivia%20Streak.png" },    route: "/trivia-streak" },
+  { key: "spin",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/n8x5w80e_Spin%20%26%20Win.png" },   route: "/spin" },
+  { key: "scratch", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/kkh28geq_Scratch%20%26%20Earn.png" }, route: "/scratch" },
+  { key: "watch",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/plghot37_Watch%20%26%20Earn.png" }, route: "/watch-earn" },
+  { key: "visit",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/wx3xbupj_Visit%20%26%20Earn.png" }, route: "/visit-earn" },
+  { key: "surveys", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/gg1c12jm_Surveys.png" },            route: "/surveys" },
+  { key: "quizzes", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/2jx1gvcy_Quizzes.png" },            route: "/quizzes" },
 ];
 
 // ============================================================================
@@ -72,20 +89,26 @@ function PressCard({
 }
 
 // ============================================================================
-// CARD — pure square image, no text label
+// IMAGE CARD — fixed square container, artwork sized smaller via resizeMode=contain
+// and inner padding so nothing touches or crosses the rounded corners.
 // ============================================================================
-function EarnImageCard({ card, onPress }: { card: Card; onPress: () => void }) {
+function EarnImageCard({
+  card, size, onPress,
+}: { card: Card; size: number; onPress: () => void }) {
   return (
     <PressCard
       onPress={onPress}
       testID={`earn-${card.key}`}
-      style={styles.cardWrap}
+      style={[styles.cardWrap, { width: size, height: size }]}
     >
-      <View style={styles.cardInner}>
+      <View style={[styles.cardInner, { width: size, height: size }]}>
         <Image
           source={card.image}
-          style={styles.cardImg}
-          resizeMode="cover"
+          style={{
+            width: size - INNER_PAD * 2,
+            height: size - INNER_PAD * 2,
+          }}
+          resizeMode="contain"
         />
       </View>
     </PressCard>
@@ -100,9 +123,8 @@ export default function EarnScreen() {
   const router = useRouter();
   const { user } = useAuth();
 
-  // Pre-warm images for instant render
   useEffect(() => {
-    CARDS.forEach((c) => Image.prefetch(c.image.uri).catch(() => {}));
+    [...HEROES, ...GRID].forEach((c) => Image.prefetch(c.image.uri).catch(() => {}));
   }, []);
 
   const open = (route: string) => router.push(route as any);
@@ -140,12 +162,25 @@ export default function EarnScreen() {
           </Pressable>
         </View>
 
-        {/* 3-column premium grid */}
-        <View style={styles.grid}>
-          {CARDS.map((c) => (
+        {/* HERO ROW — 2 column */}
+        <View style={styles.heroRow}>
+          {HEROES.map((c) => (
             <EarnImageCard
               key={c.key}
               card={c}
+              size={HERO_SIZE}
+              onPress={() => open(c.route)}
+            />
+          ))}
+        </View>
+
+        {/* 3-column grid */}
+        <View style={styles.grid}>
+          {GRID.map((c) => (
+            <EarnImageCard
+              key={c.key}
+              card={c}
+              size={CARD_SIZE}
               onPress={() => open(c.route)}
             />
           ))}
@@ -161,11 +196,11 @@ export default function EarnScreen() {
 const cardShadow = Platform.select({
   ios: {
     shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 12,
+    shadowOpacity: 0.16,
+    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 10,
   },
-  android: { elevation: 6 },
+  android: { elevation: 5 },
   default: {},
 });
 
@@ -200,30 +235,32 @@ const styles = StyleSheet.create({
   },
   balancePillText: { color: "#111827", fontWeight: "800", fontSize: 13 },
 
-  // 3-col grid — perfectly aligned via fixed card size + gap
+  // 2-col hero row
+  heroRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: COL_GAP,
+    marginBottom: COL_GAP,
+  },
+
+  // 3-col grid
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: COL_GAP,
   },
 
-  // Card wrap: fixed width, square aspect — explicit sizes everywhere so
-  // react-native-web doesn't collapse height (% height needs a fixed parent).
+  // Card
   cardWrap: {
-    width: CARD_SIZE,
-    height: CARD_SIZE,
-    borderRadius: 18,
+    borderRadius: 20,
     ...cardShadow,
   },
   cardInner: {
-    width: CARD_SIZE,
-    height: CARD_SIZE,
-    borderRadius: 18,
+    borderRadius: 20,
     overflow: "hidden",
     backgroundColor: "#fff",
-  },
-  cardImg: {
-    width: CARD_SIZE,
-    height: CARD_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: INNER_PAD,
   },
 });
