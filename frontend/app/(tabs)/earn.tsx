@@ -33,8 +33,7 @@ const CARD_SIZE = Math.floor(
   (SCREEN_W - H_PADDING * 2 - COL_GAP * (GRID_COLS - 1)) / GRID_COLS,
 );
 
-// Inner padding so the artwork has breathing room from the rounded corners.
-const INNER_PAD = 6;
+// Inner padding removed — images are now full-bleed buttons.
 
 // ============================================================================
 // ASSETS — user-uploaded premium card artwork
@@ -89,8 +88,8 @@ function PressCard({
 }
 
 // ============================================================================
-// IMAGE CARD — fixed square container, artwork sized smaller via resizeMode=contain
-// and inner padding so nothing touches or crosses the rounded corners.
+// IMAGE BUTTON — the artwork IS the button. No white card, no padding, full bleed.
+// Rounded corners come from clipping the image with overflow:hidden.
 // ============================================================================
 function EarnImageCard({
   card, size, onPress,
@@ -104,11 +103,8 @@ function EarnImageCard({
       <View style={[styles.cardInner, { width: size, height: size }]}>
         <Image
           source={card.image}
-          style={{
-            width: size - INNER_PAD * 2,
-            height: size - INNER_PAD * 2,
-          }}
-          resizeMode="contain"
+          style={{ width: size, height: size }}
+          resizeMode="stretch"
         />
       </View>
     </PressCard>
@@ -193,17 +189,6 @@ export default function EarnScreen() {
 // ============================================================================
 // STYLES
 // ============================================================================
-const cardShadow = Platform.select({
-  ios: {
-    shadowColor: "#000",
-    shadowOpacity: 0.16,
-    shadowOffset: { width: 0, height: 5 },
-    shadowRadius: 10,
-  },
-  android: { elevation: 5 },
-  default: {},
-});
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F9FC" },
 
@@ -250,17 +235,13 @@ const styles = StyleSheet.create({
     gap: COL_GAP,
   },
 
-  // Card
+  // Card — image IS the button. No white card, no padding, full-bleed artwork.
   cardWrap: {
     borderRadius: 20,
-    ...cardShadow,
   },
   cardInner: {
     borderRadius: 20,
     overflow: "hidden",
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: INNER_PAD,
+    backgroundColor: "transparent",
   },
 });
