@@ -1,113 +1,121 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Platform, Image, Pressable, Dimensions,
+  View, Text, StyleSheet, ScrollView, Image, Pressable, Dimensions,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronRight, Coins, Sparkles } from "lucide-react-native";
 import Animated, {
-  useAnimatedStyle, useSharedValue, withSpring,
+  useAnimatedStyle, useSharedValue, withSpring, withTiming, Easing,
 } from "react-native-reanimated";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
+import { api } from "../../src/lib/api";
 import MaintenanceCard from "../../src/components/MaintenanceCard";
 import { useMaintenance } from "../../src/hooks/useMaintenance";
 
-const { width: SCREEN_W } = Dimensions.get("window");
+// ============================================================================
+// TYPES
+// ============================================================================
+type EarnCardData = {
+  id: string;
+  key: string;
+  title: string;
+  image_url: string;
+  route: string;
+  hero: boolean;
+  sort_order: number;
+  hidden?: boolean;
+};
 
 // ============================================================================
-// LAYOUT
+// LAYOUT (responsive)
+// Sizes are recomputed whenever the window dimensions change so the same
+// component looks crisp on phones, foldables, and tablets.
 // ============================================================================
 const H_PADDING = 16;
 const COL_GAP = 10;
-
-// 2-column hero row size
-const HERO_COLS = 2;
-const HERO_SIZE = Math.floor(
-  (SCREEN_W - H_PADDING * 2 - COL_GAP * (HERO_COLS - 1)) / HERO_COLS,
-);
-
-// 3-column grid card size
 const GRID_COLS = 3;
-const CARD_SIZE = Math.floor(
-  (SCREEN_W - H_PADDING * 2 - COL_GAP * (GRID_COLS - 1)) / GRID_COLS,
-);
+// Hero row keeps 2 columns but is much shorter — banner-style aspect ratio.
+const HERO_ASPECT = 1.7; // width / height → shorter than a square
+const MAX_CONTENT_W = 720; // cap on very wide screens (tablets/web)
 
-// Inner padding removed — images are now full-bleed buttons.
-
-// ============================================================================
-// ASSETS — user-uploaded premium card artwork
-// ============================================================================
-type Card = { key: string; image: { uri: string }; route: string };
-
-const HEROES: Card[] = [
-  { key: "checkin", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/x6hdp4u9_Daily%20Check-in.png" }, route: "/checkin" },
-  { key: "refer",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/vw3e26bj_Refer%20%26%20Earn.png" }, route: "/refer" },
-];
-
-// Order per user spec:
-// Higher Lower, Memory Match, Tic-Tac-Toe, Math Sprint, Daily Challenge,
-// Tap the Coins, Trivia Streak, Spin & Win, Scratch & Earn, Watch & Earn,
-// Visit & Earn, Surveys, Quizzes
-const GRID: Card[] = [
-  { key: "hl",      image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/etpdwkkd_higher%20Lower.png" },     route: "/higher-lower" },
-  { key: "memory",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/xi30kh1e_memory%20Match.png" },     route: "/memory-match" },
-  { key: "ttt",     image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/xw0uyd0n_Tic%20Tac%20Toe.png" },    route: "/tic-tac-toe" },
-  { key: "math",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/uplo3z6d_Match%20Sprint.png" },     route: "/math-sprint" },
-  { key: "daily",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/dlv7fgvt_Daily%20Challenge.png" },  route: "/daily-challenge" },
-  { key: "tap",     image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/ltvcekrs_Tap%20The%20Coins.png" },  route: "/tap-rush" },
-  { key: "trivia",  image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/1egvrie3_Trivia%20Streak.png" },    route: "/trivia-streak" },
-  { key: "spin",    image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/n8x5w80e_Spin%20%26%20Win.png" },   route: "/spin" },
-  { key: "scratch", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/kkh28geq_Scratch%20%26%20Earn.png" }, route: "/scratch" },
-  { key: "watch",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/plghot37_Watch%20%26%20Earn.png" }, route: "/watch-earn" },
-  { key: "visit",   image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/wx3xbupj_Visit%20%26%20Earn.png" }, route: "/visit-earn" },
-  { key: "surveys", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/gg1c12jm_Surveys.png" },            route: "/surveys" },
-  { key: "quizzes", image: { uri: "https://customer-assets.emergentagent.com/job_task-importer/artifacts/2jx1gvcy_Quizzes.png" },            route: "/quizzes" },
-];
+function useGridSizes() {
+  const [win, setWin] = useState(() => Dimensions.get("window"));
+  useEffect(() => {
+    const sub = Dimensions.addEventListener("change", ({ window }) => setWin(window));
+    return () => sub?.remove?.();
+  }, []);
+  const contentW = Math.min(win.width, MAX_CONTENT_W);
+  const heroW = Math.floor((contentW - H_PADDING * 2 - COL_GAP) / 2);
+  const heroH = Math.round(heroW / HERO_ASPECT);
+  const gridW = Math.floor((contentW - H_PADDING * 2 - COL_GAP * (GRID_COLS - 1)) / GRID_COLS);
+  return { winW: win.width, heroW, heroH, gridW };
+}
 
 // ============================================================================
-// PRESS CARD — spring scale on tap
+// PRESS-STATE GLOW CARD
+// On press: spring scale down + soft white overlay fade-in for a "lit" feel.
+// Works identically across iOS / Android / web (no platform-specific code).
 // ============================================================================
-function PressCard({
-  children, onPress, style, testID,
-}: { children: React.ReactNode; onPress: () => void; style?: any; testID?: string }) {
+function PressGlowCard({
+  width, height, onPress, testID, children,
+}: {
+  width: number; height: number;
+  onPress: () => void; testID?: string;
+  children: React.ReactNode;
+}) {
   const scale = useSharedValue(1);
-  const animStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const overlay = useSharedValue(0);
+
+  const animWrap = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  const animOverlay = useAnimatedStyle(() => ({ opacity: overlay.value }));
+
+  const onIn = () => {
+    scale.value = withSpring(0.95, { damping: 14, stiffness: 240 });
+    overlay.value = withTiming(0.22, { duration: 90, easing: Easing.out(Easing.quad) });
+  };
+  const onOut = () => {
+    scale.value = withSpring(1, { damping: 14, stiffness: 240 });
+    overlay.value = withTiming(0, { duration: 220, easing: Easing.out(Easing.quad) });
+  };
+
   return (
-    <Animated.View style={[animStyle, style]}>
+    <Animated.View style={[{ width, height, borderRadius: 20 }, animWrap]}>
       <Pressable
-        onPressIn={() => { scale.value = withSpring(0.94, { damping: 14, stiffness: 240 }); }}
-        onPressOut={() => { scale.value = withSpring(1, { damping: 14, stiffness: 240 }); }}
+        onPressIn={onIn}
+        onPressOut={onOut}
         onPress={onPress}
         testID={testID}
+        style={[styles.cardInner, { width, height }]}
       >
         {children}
+        {/* Soft white glow overlay — fades in on press for tactile feedback */}
+        <Animated.View pointerEvents="none" style={[styles.glow, animOverlay]} />
       </Pressable>
     </Animated.View>
   );
 }
 
-// ============================================================================
-// IMAGE BUTTON — the artwork IS the button. No white card, no padding, full bleed.
-// Rounded corners come from clipping the image with overflow:hidden.
-// ============================================================================
 function EarnImageCard({
-  card, size, onPress,
-}: { card: Card; size: number; onPress: () => void }) {
+  card, width, height, onPress,
+}: {
+  card: EarnCardData; width: number; height: number; onPress: () => void;
+}) {
   return (
-    <PressCard
+    <PressGlowCard
+      width={width}
+      height={height}
       onPress={onPress}
       testID={`earn-${card.key}`}
-      style={[styles.cardWrap, { width: size, height: size }]}
     >
-      <View style={[styles.cardInner, { width: size, height: size }]}>
-        <Image
-          source={card.image}
-          style={{ width: size, height: size }}
-          resizeMode="stretch"
-        />
-      </View>
-    </PressCard>
+      <Image
+        source={{ uri: card.image_url }}
+        style={{ width, height }}
+        resizeMode="stretch"
+      />
+    </PressGlowCard>
   );
 }
 
@@ -118,10 +126,31 @@ export default function EarnScreen() {
   const maint = useMaintenance("/earn");
   const router = useRouter();
   const { user } = useAuth();
+  const { heroW, heroH, gridW } = useGridSizes();
+
+  const [cards, setCards] = useState<EarnCardData[] | null>(null);
 
   useEffect(() => {
-    [...HEROES, ...GRID].forEach((c) => Image.prefetch(c.image.uri).catch(() => {}));
+    let alive = true;
+    api<{ cards: EarnCardData[] }>("/earn-cards")
+      .then((r) => { if (alive) setCards(r.cards || []); })
+      .catch(() => { if (alive) setCards([]); });
+    return () => { alive = false; };
   }, []);
+
+  // Prefetch artwork so the grid pops without staggered loads.
+  useEffect(() => {
+    if (cards) cards.forEach((c) => Image.prefetch(c.image_url).catch(() => {}));
+  }, [cards]);
+
+  const { heroes, grid } = useMemo(() => {
+    const arr = (cards || []).filter((c) => !c.hidden);
+    arr.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    return {
+      heroes: arr.filter((c) => c.hero),
+      grid: arr.filter((c) => !c.hero),
+    };
+  }, [cards]);
 
   const open = (route: string) => router.push(route as any);
   const balance = user?.points ?? 0;
@@ -135,6 +164,9 @@ export default function EarnScreen() {
           paddingHorizontal: H_PADDING,
           paddingTop: 12,
           paddingBottom: 100,
+          alignSelf: "center",
+          width: "100%",
+          maxWidth: MAX_CONTENT_W,
         }}
         showsVerticalScrollIndicator={false}
       >
@@ -158,29 +190,41 @@ export default function EarnScreen() {
           </Pressable>
         </View>
 
-        {/* HERO ROW — 2 column */}
-        <View style={styles.heroRow}>
-          {HEROES.map((c) => (
-            <EarnImageCard
-              key={c.key}
-              card={c}
-              size={HERO_SIZE}
-              onPress={() => open(c.route)}
-            />
-          ))}
-        </View>
+        {cards === null ? (
+          <View style={{ paddingVertical: 60, alignItems: "center" }}>
+            <ActivityIndicator color={theme.colors.primary} />
+          </View>
+        ) : (
+          <>
+            {/* HERO ROW — 2-col, shorter banner aspect */}
+            {heroes.length > 0 && (
+              <View style={styles.heroRow}>
+                {heroes.map((c) => (
+                  <EarnImageCard
+                    key={c.id}
+                    card={c}
+                    width={heroW}
+                    height={heroH}
+                    onPress={() => open(c.route)}
+                  />
+                ))}
+              </View>
+            )}
 
-        {/* 3-column grid */}
-        <View style={styles.grid}>
-          {GRID.map((c) => (
-            <EarnImageCard
-              key={c.key}
-              card={c}
-              size={CARD_SIZE}
-              onPress={() => open(c.route)}
-            />
-          ))}
-        </View>
+            {/* 3-col grid (square cards) */}
+            <View style={styles.grid}>
+              {grid.map((c) => (
+                <EarnImageCard
+                  key={c.id}
+                  card={c}
+                  width={gridW}
+                  height={gridW}
+                  onPress={() => open(c.route)}
+                />
+              ))}
+            </View>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -192,7 +236,6 @@ export default function EarnScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F7F9FC" },
 
-  // Header
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -208,19 +251,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1, borderColor: "#E5E7EB",
-    ...Platform.select({
-      ios: {
-        shadowOpacity: 0.06,
-        shadowOffset: { width: 0, height: 2 },
-        shadowRadius: 6,
-        shadowColor: "#000",
-      },
-      android: { elevation: 1 },
-    }),
   },
   balancePillText: { color: "#111827", fontWeight: "800", fontSize: 13 },
 
-  // 2-col hero row
   heroRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -228,20 +261,24 @@ const styles = StyleSheet.create({
     marginBottom: COL_GAP,
   },
 
-  // 3-col grid
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: COL_GAP,
   },
 
-  // Card — image IS the button. No white card, no padding, full-bleed artwork.
-  cardWrap: {
-    borderRadius: 20,
-  },
+  // Card — image IS the button.
   cardInner: {
     borderRadius: 20,
     overflow: "hidden",
     backgroundColor: "transparent",
+  },
+
+  // Soft tactile glow that appears on press (absolutely positioned overlay).
+  glow: {
+    position: "absolute",
+    left: 0, right: 0, top: 0, bottom: 0,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
   },
 });

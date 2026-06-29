@@ -118,6 +118,9 @@ export default function AdminHome() {
         <Tile icon={<LayoutGrid size={20} color={theme.colors.primary} />} label="Profile Buttons"
           sub="Customise Quick Access buttons on the Profile tab"
           onPress={() => router.push("/admin/profile-buttons")} testID="admin-profile-buttons" />
+        <Tile icon={<Gamepad2 size={20} color={theme.colors.primary} />} label="Earn Cards"
+          sub="Reorder, hide, or relabel the cards shown on Earn tab"
+          onPress={() => router.push("/admin/earn-cards")} testID="admin-earn-cards" />
       </ScrollView>
     </SafeAreaView>
   );

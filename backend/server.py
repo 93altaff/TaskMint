@@ -226,6 +226,28 @@ class ProfileButtonsConfig(BaseModel):
     buttons: List[ProfileButton] = []
 
 
+class EarnCard(BaseModel):
+    """A single configurable card shown on the Earn tab grid.
+
+    `image_url` is a remote PNG/JPG URL (user-uploaded artwork).
+    `route` is an internal app route (e.g. "/spin", "/checkin").
+    `hero` = True → rendered in the 2-col top hero row.
+                False → rendered in the 3-col grid below.
+    """
+    id: str = Field(default_factory=lambda: f"ec_{uuid.uuid4().hex[:8]}")
+    key: str                    # stable identifier (e.g. "spin", "scratch")
+    title: str                  # admin-side label only (not rendered on the card)
+    image_url: str
+    route: str
+    hero: bool = False
+    sort_order: int = 0
+    hidden: bool = False
+
+
+class EarnCardsConfig(BaseModel):
+    cards: List[EarnCard] = []
+
+
 class AppMetaSettings(BaseModel):
     """Single admin-controlled config doc that powers withdrawal mins, exchange
     ratio, per-task reward ranges, referral mode, and per-screen maintenance.
@@ -881,6 +903,64 @@ async def get_withdraw_settings():
     base["min_withdrawal_games_task"] = int(meta.get("min_withdrawal_games_task", 10000) or 10000)
     base["daily_withdrawal_limit"] = int(meta.get("daily_withdrawal_limit", 2) or 2)
     return base
+
+
+# ---------- Earn cards (admin-orderable, hide/show, hero flag) ----------
+_EARN_HOST = "https://customer-assets.emergentagent.com/job_task-importer/artifacts"
+
+def _default_earn_cards() -> List[Dict[str, Any]]:
+    """Built-in seed of the 15 premium card artworks shipped with the app.
+    Admin can reorder them, hide some, or toggle which two appear as the
+    hero (top 2-column) row.
+    """
+    raw = [
+        # hero row
+        ("checkin", "Daily Check-in",  "x6hdp4u9_Daily%20Check-in.png",     "/checkin",         True),
+        ("refer",   "Refer & Earn",    "vw3e26bj_Refer%20%26%20Earn.png",   "/refer",           True),
+        # grid order (matches the order the user requested)
+        ("hl",      "Higher or Lower", "etpdwkkd_higher%20Lower.png",        "/higher-lower",    False),
+        ("memory",  "Memory Match",    "xi30kh1e_memory%20Match.png",        "/memory-match",    False),
+        ("ttt",     "Tic-Tac-Toe",     "xw0uyd0n_Tic%20Tac%20Toe.png",       "/tic-tac-toe",     False),
+        ("math",    "Math Sprint",     "uplo3z6d_Match%20Sprint.png",        "/math-sprint",     False),
+        ("daily",   "Daily Challenge", "dlv7fgvt_Daily%20Challenge.png",     "/daily-challenge", False),
+        ("tap",     "Tap the Coins",   "ltvcekrs_Tap%20The%20Coins.png",     "/tap-rush",        False),
+        ("trivia",  "Trivia Streak",   "1egvrie3_Trivia%20Streak.png",       "/trivia-streak",   False),
+        ("spin",    "Spin & Win",      "n8x5w80e_Spin%20%26%20Win.png",      "/spin",            False),
+        ("scratch", "Scratch & Earn",  "kkh28geq_Scratch%20%26%20Earn.png",  "/scratch",         False),
+        ("watch",   "Watch & Earn",    "plghot37_Watch%20%26%20Earn.png",    "/watch-earn",      False),
+        ("visit",   "Visit & Earn",    "wx3xbupj_Visit%20%26%20Earn.png",    "/visit-earn",      False),
+        ("surveys", "Surveys",         "gg1c12jm_Surveys.png",               "/surveys",         False),
+        ("quizzes", "Quizzes",         "2jx1gvcy_Quizzes.png",               "/quizzes",         False),
+    ]
+    out: List[Dict[str, Any]] = []
+    for idx, (key, title, fname, route, hero) in enumerate(raw, start=1):
+        out.append({
+            "id": f"ec_default_{key}",
+            "key": key,
+            "title": title,
+            "image_url": f"{_EARN_HOST}/{fname}",
+            "route": route,
+            "hero": hero,
+            "sort_order": idx,
+            "hidden": False,
+        })
+    return out
+
+
+@api_router.get("/earn-cards")
+async def get_earn_cards():
+    """Public read — used by the Earn tab. Returns visible cards ordered by sort_order.
+    If admin hasn't configured any yet, returns sensible defaults so the UI
+    never looks empty.
+    """
+    doc = await db.earn_cards.find_one({"_id": "singleton"}, {"_id": 0})
+    items: List[Dict[str, Any]] = (doc or {}).get("cards", []) or []
+    if not items:
+        items = _default_earn_cards()
+    items = [c for c in items if not c.get("hidden")]
+    items.sort(key=lambda c: int(c.get("sort_order", 0) or 0))
+    return {"cards": items}
+
 
 @api_router.get("/app-config")
 async def get_public_app_config():
@@ -1919,6 +1999,43 @@ async def admin_update_profile_buttons(
         upsert=True,
     )
     return {"buttons": items}
+
+
+# ---------- Admin: Earn Cards (reorder, hide/show, toggle hero) ----------
+@api_router.get("/admin/earn-cards")
+async def admin_get_earn_cards(_: dict = Depends(require_admin)):
+    doc = await db.earn_cards.find_one({"_id": "singleton"}, {"_id": 0})
+    items = (doc or {}).get("cards", []) or []
+    if not items:
+        items = _default_earn_cards()
+    items.sort(key=lambda c: int(c.get("sort_order", 0) or 0))
+    return {"cards": items}
+
+
+@api_router.put("/admin/earn-cards")
+async def admin_update_earn_cards(
+    payload: EarnCardsConfig, _: dict = Depends(require_admin)
+):
+    items: List[Dict[str, Any]] = []
+    for c in payload.cards:
+        d = c.dict()
+        if not d.get("id"):
+            d["id"] = f"ec_{uuid.uuid4().hex[:8]}"
+        items.append(d)
+    items.sort(key=lambda c: int(c.get("sort_order", 0) or 0))
+    await db.earn_cards.update_one(
+        {"_id": "singleton"},
+        {"$set": {"cards": items}},
+        upsert=True,
+    )
+    return {"cards": items}
+
+
+@api_router.post("/admin/earn-cards/reset")
+async def admin_reset_earn_cards(_: dict = Depends(require_admin)):
+    """Wipe admin config and revert to the built-in 15-card seed."""
+    await db.earn_cards.delete_one({"_id": "singleton"})
+    return {"cards": _default_earn_cards()}
 
 
 @api_router.get("/admin/stats")
