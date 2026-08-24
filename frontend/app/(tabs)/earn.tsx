@@ -7,7 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronRight, Coins, Sparkles } from "lucide-react-native";
 import Animated, {
-  useAnimatedStyle, useSharedValue, withSpring, withTiming, Easing,
+  useAnimatedStyle, useSharedValue, withSpring, withTiming, withRepeat, withSequence, Easing,
 } from "react-native-reanimated";
 import { useAuth } from "../../src/context/AuthContext";
 import { theme } from "../../src/lib/theme";
@@ -103,6 +103,32 @@ function EarnImageCard({
 }: {
   card: EarnCardData; width: number; height: number; onPress: () => void;
 }) {
+  const [loaded, setLoaded] = useState(false);
+  const skelOpacity = useSharedValue(1);
+  const imgOpacity = useSharedValue(0);
+
+  // Shimmer pulse animation on the skeleton (0.6 → 1 → 0.6).
+  useEffect(() => {
+    if (loaded) return;
+    skelOpacity.value = withRepeat(
+      withSequence(
+        withTiming(0.55, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 700, easing: Easing.inOut(Easing.ease) }),
+      ),
+      -1,
+      false,
+    );
+  }, [loaded, skelOpacity]);
+
+  const onImgLoad = () => {
+    setLoaded(true);
+    imgOpacity.value = withTiming(1, { duration: 220, easing: Easing.out(Easing.quad) });
+    skelOpacity.value = withTiming(0, { duration: 220, easing: Easing.out(Easing.quad) });
+  };
+
+  const skelStyle = useAnimatedStyle(() => ({ opacity: skelOpacity.value }));
+  const imgStyle = useAnimatedStyle(() => ({ opacity: imgOpacity.value }));
+
   return (
     <PressGlowCard
       width={width}
@@ -110,11 +136,26 @@ function EarnImageCard({
       onPress={onPress}
       testID={`earn-${card.key}`}
     >
-      <Image
-        source={{ uri: card.image_url }}
-        style={{ width, height }}
-        resizeMode="stretch"
-      />
+      {/* Skeleton placeholder — pulsing grey block behind the image until it loads */}
+      {!loaded && (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.skeleton,
+            { width, height },
+            skelStyle,
+          ]}
+        />
+      )}
+      <Animated.View style={imgStyle}>
+        <Image
+          source={{ uri: card.image_url }}
+          style={{ width, height }}
+          resizeMode="stretch"
+          onLoad={onImgLoad}
+          onError={onImgLoad}
+        />
+      </Animated.View>
     </PressGlowCard>
   );
 }
@@ -279,6 +320,14 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0, right: 0, top: 0, bottom: 0,
     backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+  },
+
+  // Skeleton placeholder shown while the artwork downloads.
+  skeleton: {
+    position: "absolute",
+    left: 0, top: 0,
+    backgroundColor: "#E5E7EB",
     borderRadius: 20,
   },
 });
