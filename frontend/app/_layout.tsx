@@ -5,12 +5,18 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Platform } from "react-native";
 import * as NavigationBar from "expo-navigation-bar";
-import { AuthProvider } from "../src/context/AuthContext";
+import * as SplashScreen from "expo-splash-screen";
+import { AuthProvider, useAuth } from "../src/context/AuthContext";
 import NoInternetGate from "../src/components/NoInternetGate";
 import { Toaster } from "sonner-native";
 import { loadAdSettings } from "../src/lib/adConfig";
 // Metro picks initAdMob.web.ts on web (no-op) and initAdMob.ts on native (real init).
 import "../src/lib/initAdMob";
+
+// Keep the native splash visible immediately on cold start so users see the
+// branded splash from the very first frame (no white flash). It is hidden
+// only after AuthContext has finished its initial token check.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 /**
  * Root layout. UpdateGateWrapper and MaintenanceGate have been intentionally
@@ -38,6 +44,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AuthProvider>
+          <SplashGate />
           <NoInternetGate>
             <StatusBar style="dark" hidden />
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F7F9FC" } }}>
@@ -87,4 +94,17 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+/**
+ * Hides the native splash screen as soon as the AuthProvider has finished its
+ * initial token check, eliminating the white flash between native splash and
+ * the first rendered route.
+ */
+function SplashGate() {
+  const { loading } = useAuth();
+  useEffect(() => {
+    if (!loading) SplashScreen.hideAsync().catch(() => {});
+  }, [loading]);
+  return null;
 }

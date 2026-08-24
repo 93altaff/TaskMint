@@ -80,6 +80,45 @@ export default function AdminGameRewards() {
         style={{ flex: 1 }}
       >
         <ScrollView contentContainerStyle={{ padding: theme.spacing.lg, gap: 20, paddingBottom: 120 }}>
+          <Section title="Daily Check-in">
+            <Row label="Day 1 base reward"><NumInput value={config.checkin_base} onChangeText={setNum("checkin_base")} /></Row>
+            <Row label="Bonus per consecutive day"><NumInput value={config.checkin_step} onChangeText={setNum("checkin_step")} /></Row>
+            <Row label="Daily reward cap"><NumInput value={config.checkin_cap} onChangeText={setNum("checkin_cap")} /></Row>
+            <Text style={styles.muted}>
+              Day N reward = base + (N − 1) × step, capped at cap. Streak resets if a day is missed.
+            </Text>
+          </Section>
+
+          <Section title="Spin & Win">
+            <Row label="Min reward per spin"><NumInput value={config.spin_min} onChangeText={setNum("spin_min")} /></Row>
+            <Row label="Max reward per spin"><NumInput value={config.spin_max} onChangeText={setNum("spin_max")} /></Row>
+          </Section>
+
+          <Section title="Scratch & Earn">
+            <Row label="Min reward per scratch"><NumInput value={config.scratch_min} onChangeText={setNum("scratch_min")} /></Row>
+            <Row label="Max reward per scratch"><NumInput value={config.scratch_max} onChangeText={setNum("scratch_max")} /></Row>
+          </Section>
+
+          <Section title="Visit & Earn">
+            <Row label="Min reward per visit"><NumInput value={config.visit_min} onChangeText={setNum("visit_min")} /></Row>
+            <Row label="Max reward per visit"><NumInput value={config.visit_max} onChangeText={setNum("visit_max")} /></Row>
+          </Section>
+
+          <Section title="Watch & Earn">
+            <Row label="Min reward per video"><NumInput value={config.watch_min} onChangeText={setNum("watch_min")} /></Row>
+            <Row label="Max reward per video"><NumInput value={config.watch_max} onChangeText={setNum("watch_max")} /></Row>
+          </Section>
+
+          <Section title="Surveys">
+            <Row label="Min reward per survey"><NumInput value={config.survey_min} onChangeText={setNum("survey_min")} /></Row>
+            <Row label="Max reward per survey"><NumInput value={config.survey_max} onChangeText={setNum("survey_max")} /></Row>
+          </Section>
+
+          <Section title="Quizzes">
+            <Row label="Min reward per quiz"><NumInput value={config.quiz_min} onChangeText={setNum("quiz_min")} /></Row>
+            <Row label="Max reward per quiz"><NumInput value={config.quiz_max} onChangeText={setNum("quiz_max")} /></Row>
+          </Section>
+
           <Section title="Higher or Lower">
             <Row label="Reward at streak 3+"><NumInput value={config.hl_reward_streak_3} onChangeText={setNum("hl_reward_streak_3")} /></Row>
             <Row label="Reward at streak 5+"><NumInput value={config.hl_reward_streak_5} onChangeText={setNum("hl_reward_streak_5")} /></Row>
@@ -111,6 +150,16 @@ export default function AdminGameRewards() {
           <Section title="Trivia Streak">
             <Row label="Points per correct answer"><NumInput value={config.trivia_per_correct} onChangeText={setNum("trivia_per_correct")} /></Row>
             <Row label="Bonus per streak step (above 1)"><NumInput value={config.trivia_streak_bonus} onChangeText={setNum("trivia_streak_bonus")} /></Row>
+          </Section>
+
+          <Section title="Daily Challenge (Mystery Box)">
+            <Row label="Common reward (~50%)"><NumInput value={config.daily_challenge_common} onChangeText={setNum("daily_challenge_common")} /></Row>
+            <Row label="Uncommon reward (~40%)"><NumInput value={config.daily_challenge_uncommon} onChangeText={setNum("daily_challenge_uncommon")} /></Row>
+            <Row label="Rare reward (~9%)"><NumInput value={config.daily_challenge_rare} onChangeText={setNum("daily_challenge_rare")} /></Row>
+            <Row label="Jackpot reward (~1%)"><NumInput value={config.daily_challenge_jackpot} onChangeText={setNum("daily_challenge_jackpot")} /></Row>
+            <Text style={styles.muted}>
+              One mystery box per user per day. Probabilities are fixed; only the payout amounts are configurable.
+            </Text>
           </Section>
         </ScrollView>
       </KeyboardAvoidingView>

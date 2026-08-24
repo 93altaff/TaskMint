@@ -212,7 +212,7 @@ export default function WithdrawScreen() {
           </View>
 
           {source === "campaign" ? (
-            <View style={styles.amountInputBox}>
+            <View style={[styles.amountInputBox, { marginTop: theme.spacing.md }]}>
               <TextInput
                 value={customPts}
                 onChangeText={(v) => setCustomPts(v.replace(/[^0-9]/g, ""))}
@@ -478,13 +478,13 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radii.lg, borderWidth: 1, borderColor: theme.colors.border,
-    paddingHorizontal: 14, paddingVertical: 4,
+    paddingHorizontal: 14,
   },
   amountInputPrefix: { color: theme.colors.muted, fontWeight: "800", fontSize: 14 },
   amountInput: {
-    flex: 1, paddingVertical: 14, fontSize: 18, color: theme.colors.text, fontWeight: "800",
+    flex: 1, paddingVertical: 14, fontSize: 15, color: theme.colors.text,
   },
-  amountInputSuffix: { color: theme.colors.primary, fontWeight: "800", fontSize: 13 },
+  amountInputSuffix: { color: theme.colors.primary, fontWeight: "700", fontSize: 13 },
   note: { color: theme.colors.muted, fontSize: 12, marginTop: 6 },
   formGroup: { marginTop: theme.spacing.md },
   inputLabel: { color: theme.colors.muted, fontSize: 12, fontWeight: "700", marginBottom: 6 },

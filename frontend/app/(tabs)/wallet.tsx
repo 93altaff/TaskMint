@@ -194,7 +194,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: theme.colors.surface, padding: theme.spacing.md,
     borderRadius: theme.radii.lg, borderWidth: 1, borderColor: theme.colors.border,
-    marginBottom: 10,
+    marginBottom: 6,
   },
   txnIcon: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   txnTitle: { fontSize: 14, fontWeight: "700", color: theme.colors.text },

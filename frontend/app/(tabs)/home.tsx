@@ -20,6 +20,7 @@ type Campaign = {
   id: string; name: string; note: string; logo_url: string;
   link_url?: string; reward_points: number; reward_inr: number;
   category?: string;
+  pinned?: boolean;
 };
 type Completion = {
   id: string; campaign_id: string; status: "pending" | "approved" | "rejected";
@@ -237,6 +238,10 @@ export default function HomeScreen() {
                 if (s === "rejected") return 3;
                 return 1;
               };
+              // Pinned campaigns float to the very top regardless of status.
+              const pa = (a as any).pinned ? 0 : 1;
+              const pb = (b as any).pinned ? 0 : 1;
+              if (pa !== pb) return pa - pb;
               const r = rank(sa) - rank(sb);
               if (r !== 0) return r;
               const ta = (a as any).created_at || "";
@@ -269,8 +274,24 @@ export default function HomeScreen() {
                 >
                   <Image source={{ uri: c.logo_url }} style={styles.campaignLogo} />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.campaignName}>{c.name}</Text>
-                    <Text style={styles.campaignNote} numberOfLines={2}>{c.note}</Text>
+                    <Text
+                      style={styles.campaignName}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                    >
+                      {c.name}
+                    </Text>
+                    <Text
+                      style={styles.campaignNote}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                    >
+                      {c.note}
+                    </Text>
                     {status && <StatusChip status={status} />}
                     {status === "rejected" && !!note && (
                       <Text style={styles.reasonText} numberOfLines={3} testID={`campaign-${c.id}-reason`}>
@@ -403,7 +424,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 12,
     backgroundColor: theme.colors.surface, padding: theme.spacing.md,
     borderRadius: theme.radii.lg, borderWidth: 1, borderColor: theme.colors.border,
-    marginBottom: 10,
+    marginBottom: 6,
   },
   campaignFade: { opacity: 0.55 },
   campaignLogo: { width: 48, height: 48, borderRadius: 12, backgroundColor: "#eee" },

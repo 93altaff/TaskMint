@@ -77,7 +77,7 @@ class Banner(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class BannerCreate(BaseModel):
-    title: str
+    title: Optional[str] = ""
     subtitle: Optional[str] = ""
     image_url: str
     link_url: Optional[str] = ""
@@ -284,6 +284,12 @@ class AppMetaSettings(BaseModel):
     checkin_base: int = 20                       # day 1 reward
     checkin_step: int = 10                       # +N per day after day 1
     checkin_cap: int = 100                       # cap
+
+    # Daily Challenge weighted reward tiers
+    daily_challenge_common: int = 50             # ~50% chance
+    daily_challenge_uncommon: int = 150          # ~40% chance
+    daily_challenge_rare: int = 300              # ~9% chance
+    daily_challenge_jackpot: int = 1000          # ~1% chance
 
     # ----- Referral system -----
     referral_mode: str = "streak"  # "streak" | "withdrawal" | "both"
@@ -3063,18 +3069,23 @@ async def daily_challenge_open(user: dict = Depends(get_current_user)):
     today = today_str()
     if user.get("daily_challenge_date") == today:
         raise HTTPException(status_code=400, detail="Already opened today — come back tomorrow")
-    # Weighted reward: most commonly 50-150, occasional 300, rare 1000
+    # Weighted reward — values configurable via Admin → Game Rewards.
+    meta = await get_app_meta()
+    common = int(meta.get("daily_challenge_common", 50) or 50)
+    uncommon = int(meta.get("daily_challenge_uncommon", 150) or 150)
+    rare = int(meta.get("daily_challenge_rare", 300) or 300)
+    jackpot = int(meta.get("daily_challenge_jackpot", 1000) or 1000)
     r = random.random()
-    if r < 0.01:    reward = 1000  # 1% jackpot
-    elif r < 0.10:  reward = 300   # 9%
-    elif r < 0.50:  reward = 150   # 40%
-    else:           reward = 50    # 50%
+    if r < 0.01:    reward = jackpot   # 1% jackpot
+    elif r < 0.10:  reward = rare      # 9%
+    elif r < 0.50:  reward = uncommon  # 40%
+    else:           reward = common    # 50%
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {"daily_challenge_date": today}},
     )
     await add_points_and_log(user["user_id"], reward, "daily_challenge", "Daily mystery box")
-    return {"reward": reward, "jackpot": reward >= 1000}
+    return {"reward": reward, "jackpot": reward >= jackpot}
 
 
 # -------- Tap-the-Coin Rush --------

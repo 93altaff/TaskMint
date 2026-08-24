@@ -38,8 +38,8 @@ export default function AdminBanners() {
   };
 
   const save = async () => {
-    if (!title || !image) {
-      toast.error("Required", { description: "Title and image URL required" });
+    if (!image) {
+      toast.error("Required", { description: "Image URL is required" });
       return;
     }
     try {
@@ -119,9 +119,9 @@ export default function AdminBanners() {
                 </TouchableOpacity>
               )}
             </View>
-            <TextInput value={title} onChangeText={setTitle} placeholder="Title"
+            <TextInput value={title} onChangeText={setTitle} placeholder="Title (optional)"
               placeholderTextColor={theme.colors.muted} style={styles.input} testID="banner-title" />
-            <TextInput value={subtitle} onChangeText={setSubtitle} placeholder="Subtitle"
+            <TextInput value={subtitle} onChangeText={setSubtitle} placeholder="Subtitle (optional)"
               placeholderTextColor={theme.colors.muted} style={styles.input} testID="banner-subtitle" />
             <ImagePickerField value={image} onChange={setImage} label="Banner Image" testID="banner-image" />
             <TextInput value={link} onChangeText={setLink} placeholder="Link URL (opens on tap)"
