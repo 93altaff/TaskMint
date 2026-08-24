@@ -48,7 +48,9 @@ export default function Index() {
         </View>
       </View>
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Made with care · v1.0.4</Text>
+        <Text style={styles.footerText}>
+          {`Made with care · v${require("../app.json").expo.version}`}
+        </Text>
       </View>
     </View>
   );
