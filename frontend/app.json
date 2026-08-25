@@ -17,7 +17,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.labs93world.taskmint",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "Show personalised rewards and offers"
+        "NSUserTrackingUsageDescription": "Show personalised rewards and offers",
+        "NSPhotoLibraryUsageDescription": "Upload photos to submit task proof"
       }
     },
     "android": {
